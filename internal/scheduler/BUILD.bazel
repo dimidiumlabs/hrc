@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+exports_files(["BUILD.bazel"])
+
+go_library(
+    name = "scheduler",
+    srcs = glob(
+        ["*.go"],
+        exclude = ["*_test.go"],
+    ),
+    importpath = "dimidiumlabs.io/hrc/internal/scheduler",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/provider",
+        "//internal/slot",
+        "//internal/space",
+    ],
+)
+
+go_test(
+    name = "scheduler_test",
+    size = "small",
+    srcs = glob(["*_test.go"]),  # keep
+    embed = [":scheduler"],
+    deps = [
+        "//internal/slot",
+        "//internal/slot-pgroup",
+        "//internal/space",
+        "//internal/space-host",
+    ],
+)

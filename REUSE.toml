@@ -14,7 +14,7 @@ path = [
 
   # hrc configs
   "VERSION",
-  "cmd/pkg/hrc.json",
+  "cmd/hrcd/pkg/hrc.json",
   "tools/site/assets/**",
 
   # any lock files

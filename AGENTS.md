@@ -13,7 +13,7 @@ the public API.
 Use only Bazel from the repository root; do not invoke toolchains or Aspect CLI
 directly.
 
-- Build: `bazel build //:hrc`, `//:runner`, or `//cmd:release`.
+- Build: `bazel build //:hrcd`, `//:runner`, or `//cmd/hrcd:release`.
 - Tests:
   `bazel test //:tests --test_output=errors`.
   Include new test targets in `//:tests`. Documentation tests require workspace

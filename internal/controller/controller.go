@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
 // SPDX-License-Identifier: BSD-3-Clause
 
-package main
+// Package controller supervises provider jobs from acquisition through cleanup.
+package controller
 
 import (
 	"context"
@@ -11,20 +12,29 @@ import (
 	"time"
 
 	"dimidiumlabs.io/hrc/internal/provider"
+	"dimidiumlabs.io/hrc/internal/scheduler"
 )
 
-func serve(ctx context.Context, queue provider.Queue, host *scheduler, group *Group) error {
-	return queue.Serve(ctx, host, func(ctx context.Context, job provider.Job) error {
-		result, err := runJob(ctx, job, host, group, time.Minute)
-		slog.Info("Job completed", "group", group.Name, "job", job.ID(), "result", result.String())
+// Options selects the slot owner and reuse policy for a queue.
+type Options struct {
+	Name       string
+	ReuseSlots bool
+}
+
+// Serve acquires jobs from queue and supervises their runs using pool.
+// The caller owns pool and closes it after all queues have stopped.
+func Serve(ctx context.Context, queue provider.Queue, pool *scheduler.Scheduler, options Options) error {
+	return queue.Serve(ctx, pool, func(ctx context.Context, job provider.Job) error {
+		result, err := runJob(ctx, job, pool, options, time.Minute)
+		slog.Info("Job completed", "group", options.Name, "job", job.ID(), "result", result.String())
 		return err
 	})
 }
 
 // runJob keeps supervision alive through execution cleanup and completion.
-func runJob(ctx context.Context, job provider.Job, host *scheduler, group *Group, grace time.Duration) (result provider.Result, err error) {
+func runJob(ctx context.Context, job provider.Job, pool *scheduler.Scheduler, options Options, grace time.Duration) (result provider.Result, err error) {
 	result = provider.Failed
-	var instance *allocation
+	var instance *scheduler.Allocation
 	var local provider.Run
 	defer func() {
 		if local != nil {
@@ -37,7 +47,7 @@ func runJob(ctx context.Context, job provider.Job, host *scheduler, group *Group
 		err = errors.Join(err, job.Close(cleanup))
 		cancel()
 		if instance != nil {
-			err = errors.Join(err, host.release(instance))
+			err = errors.Join(err, pool.Release(instance))
 		}
 	}()
 	if grace < 0 {
@@ -49,7 +59,7 @@ func runJob(ctx context.Context, job provider.Job, host *scheduler, group *Group
 	if stopped, status, cause := pendingStop(ctx, job); stopped {
 		return status, cause
 	}
-	instance, err = host.acquire(ctx, group)
+	instance, err = pool.Acquire(ctx, options.Name, options.ReuseSlots)
 	if err != nil {
 		return result, err
 	}

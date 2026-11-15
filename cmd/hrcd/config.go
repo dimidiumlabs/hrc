@@ -214,7 +214,7 @@ type Config struct {
 
 func (c *Config) defaults() {
 	if c.PathWorker == "" {
-		c.PathWorker = "./hrc-worker"
+		c.PathWorker = "./hrcw-github"
 	}
 	if c.DirRunner == "" {
 		c.DirRunner = "./runner"

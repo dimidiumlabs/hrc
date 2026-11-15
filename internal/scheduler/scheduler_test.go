@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
 // SPDX-License-Identifier: BSD-3-Clause
 
-package main
+package scheduler
 
 import (
 	"context"
@@ -9,52 +9,53 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"dimidiumlabs.io/hrc/internal/slot"
 	slotpgroup "dimidiumlabs.io/hrc/internal/slot-pgroup"
+	"dimidiumlabs.io/hrc/internal/space"
 	spacehost "dimidiumlabs.io/hrc/internal/space-host"
 )
 
-func TestHostSchedulerWithoutQuota(t *testing.T) {
-	p, err := newHostScheduler(t.TempDir(), Resources{}, Resources{})
-	if err != nil {
-		t.Fatal(err)
+func TestMain(m *testing.M) {
+	if len(os.Args) == 2 && os.Args[1] == "hrc-slot-child" {
+		time.Sleep(time.Hour)
+		os.Exit(0)
 	}
-	t.Cleanup(func() {
-		if err := p.Close(); err != nil {
-			t.Error(err)
-		}
-	})
-	if free, _ := p.State(); free != math.MaxInt32 {
-		t.Fatalf("unlimited pool capacity = %d", free)
-	}
+	os.Exit(m.Run())
 }
 
 func TestSlotCount(t *testing.T) {
 	const gib = 1 << 30
-	host := Resources{CPU: 32, Memory: 128 * gib}
+	host := space.Resources{CPU: 32, Memory: 128 * gib}
 	for _, tt := range []struct {
 		name           string
-		reserve, quota Resources
+		reserve, quota space.Resources
 		want           int
 		err            string
 	}{
 		{name: "unlimited", want: math.MaxInt32},
-		{name: "hetzner", reserve: Resources{CPU: 2, Memory: 8 * gib}, quota: Resources{CPU: 2, Memory: 8 * gib}, want: 15},
-		{name: "memory bound", quota: Resources{CPU: 1, Memory: 16 * gib}, want: 8},
-		{name: "cpu bound", quota: Resources{CPU: 4, Memory: gib}, want: 8},
-		{name: "cpu only", quota: Resources{CPU: 3}, want: 10},
-		{name: "memory only", reserve: Resources{Memory: 64 * gib}, quota: Resources{Memory: 16 * gib}, want: 4},
-		{name: "fractional cpu", quota: Resources{CPU: 0.1}, want: 320},
-		{name: "quota exceeds host", quota: Resources{CPU: 64}, err: "exceeds host resources"},
-		{name: "reserve exceeds host", reserve: Resources{Memory: 256 * gib}, quota: Resources{Memory: gib}, err: "exceeds host resources"},
+		{name: "hetzner", reserve: space.Resources{CPU: 2, Memory: 8 * gib}, quota: space.Resources{CPU: 2, Memory: 8 * gib}, want: 15},
+		{name: "memory bound", quota: space.Resources{CPU: 1, Memory: 16 * gib}, want: 8},
+		{name: "cpu bound", quota: space.Resources{CPU: 4, Memory: gib}, want: 8},
+		{name: "cpu only", quota: space.Resources{CPU: 3}, want: 10},
+		{name: "memory only", reserve: space.Resources{Memory: 64 * gib}, quota: space.Resources{Memory: 16 * gib}, want: 4},
+		{name: "fractional cpu", quota: space.Resources{CPU: 0.1}, want: 320},
+		{name: "quota exceeds host", quota: space.Resources{CPU: 64}, err: "exceeds host resources"},
+		{name: "reserve exceeds host", reserve: space.Resources{Memory: 256 * gib}, quota: space.Resources{Memory: gib}, err: "exceeds host resources"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := slotCount(host, tt.reserve, tt.quota)
-			checkError(t, err, tt.err)
+			if tt.err == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tt.err) {
+				t.Fatalf("error = %v, want containing %q", err, tt.err)
+			}
 			if got != tt.want {
 				t.Errorf("slotCount = %d, want %d", got, tt.want)
 			}
@@ -62,7 +63,7 @@ func TestSlotCount(t *testing.T) {
 	}
 }
 
-func newTestScheduler(t *testing.T, root string, total int) *scheduler {
+func newTestScheduler(t *testing.T, root string, total int) *Scheduler {
 	t.Helper()
 	environment, err := spacehost.New(root, slotpgroup.New)
 	if err != nil {
@@ -77,20 +78,20 @@ func newTestScheduler(t *testing.T, root string, total int) *scheduler {
 	return p
 }
 
-func takeSlot(t *testing.T, p *scheduler, group *Group) (*allocation, func()) {
+func takeSlot(t *testing.T, p *Scheduler, owner string, reusable bool) (*Allocation, func()) {
 	t.Helper()
 	reservation := p.Reserve()
 	if err := reservation.Wait(t.Context()); err != nil {
 		reservation.Close()
 		t.Fatal(err)
 	}
-	s, err := p.acquire(t.Context(), group)
+	s, err := p.Acquire(t.Context(), owner, reusable)
 	if err != nil {
 		reservation.Close()
 		t.Fatal(err)
 	}
 	release := sync.OnceFunc(func() {
-		if err := errors.Join(p.release(s), reservation.Close()); err != nil {
+		if err := errors.Join(p.Release(s), reservation.Close()); err != nil {
 			t.Error(err)
 		}
 	})
@@ -185,9 +186,8 @@ func TestReservationCancellationAndShutdown(t *testing.T) {
 func TestSchedulerReuseAndOwnership(t *testing.T) {
 	root := t.TempDir()
 	p := newTestScheduler(t, root, 2)
-	group := &Group{Name: "smoke", ReuseDirs: true}
-	first, releaseFirst := takeSlot(t, p, group)
-	second, releaseSecond := takeSlot(t, p, group)
+	first, releaseFirst := takeSlot(t, p, "smoke", true)
+	second, releaseSecond := takeSlot(t, p, "smoke", true)
 	if first.Dir() != filepath.Join(root, "smoke-1") || second.Dir() != filepath.Join(root, "smoke-2") {
 		t.Fatalf("unexpected directories: %q, %q", first.Dir(), second.Dir())
 	}
@@ -200,12 +200,12 @@ func TestSchedulerReuseAndOwnership(t *testing.T) {
 	}
 	releaseFirst()
 	releaseSecond()
-	reused, releaseReused := takeSlot(t, p, group)
+	reused, releaseReused := takeSlot(t, p, "smoke", true)
 	if reused != second {
 		t.Fatal("warmest slot was not reused")
 	}
 	releaseReused()
-	other, releaseOther := takeSlot(t, p, &Group{Name: "other", ReuseDirs: true})
+	other, releaseOther := takeSlot(t, p, "other", true)
 	if other.Slot == second.Slot {
 		t.Fatal("different owners shared a slot")
 	}
@@ -213,7 +213,7 @@ func TestSchedulerReuseAndOwnership(t *testing.T) {
 		t.Fatalf("another owner's cache is visible: %v", err)
 	}
 	releaseOther()
-	reused, _ = takeSlot(t, p, group)
+	reused, _ = takeSlot(t, p, "smoke", true)
 	if reused != second {
 		t.Fatal("owner's retained slot was lost")
 	}
@@ -224,7 +224,7 @@ func TestSchedulerReuseAndOwnership(t *testing.T) {
 
 func TestEphemeralSlotRelease(t *testing.T) {
 	p := newTestScheduler(t, t.TempDir(), 1)
-	first, release := takeSlot(t, p, &Group{})
+	first, release := takeSlot(t, p, "", false)
 	release()
 	if _, err := os.Stat(first.Dir()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("ephemeral workspace survived: %v", err)
@@ -232,7 +232,7 @@ func TestEphemeralSlotRelease(t *testing.T) {
 	if _, err := first.Start(slot.Command{}); !errors.Is(err, os.ErrClosed) {
 		t.Fatalf("ephemeral process group survived: %v", err)
 	}
-	second, _ := takeSlot(t, p, &Group{})
+	second, _ := takeSlot(t, p, "", false)
 	if second.Slot == first.Slot || second.Dir() == first.Dir() {
 		t.Fatal("ephemeral slot was reused")
 	}
@@ -250,8 +250,7 @@ func TestSlotPreparationFailure(t *testing.T) {
 			if err := reservation.Wait(t.Context()); err != nil {
 				t.Fatal(err)
 			}
-			group := &Group{Name: "smoke", ReuseDirs: reusable}
-			if _, err := p.acquire(t.Context(), group); err == nil {
+			if _, err := p.Acquire(t.Context(), "smoke", reusable); err == nil {
 				t.Fatal("prepared a workspace under a file")
 			}
 			reservation.Close()
@@ -261,7 +260,7 @@ func TestSlotPreparationFailure(t *testing.T) {
 			if err := os.Remove(root); err != nil {
 				t.Fatal(err)
 			}
-			takeSlot(t, p, group)
+			takeSlot(t, p, "smoke", reusable)
 		})
 	}
 }
@@ -271,7 +270,7 @@ func TestCanceledSlotPreparation(t *testing.T) {
 	p := newTestScheduler(t, root, 1)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := p.acquire(ctx, &Group{}); !errors.Is(err, context.Canceled) {
+	if _, err := p.Acquire(ctx, "", false); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled preparation: %v", err)
 	}
 	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
@@ -283,7 +282,7 @@ func TestSlotClose(t *testing.T) {
 	for _, idle := range []bool{false, true} {
 		t.Run(map[bool]string{false: "busy", true: "idle"}[idle], func(t *testing.T) {
 			pool := newTestScheduler(t, t.TempDir(), 1)
-			s, release := takeSlot(t, pool, &Group{Name: "smoke", ReuseDirs: true})
+			s, release := takeSlot(t, pool, "smoke", true)
 			self, err := os.Executable()
 			if err != nil {
 				t.Fatal(err)
@@ -306,5 +305,24 @@ func TestSlotClose(t *testing.T) {
 				t.Fatalf("slot directory survived: %v", err)
 			}
 		})
+	}
+}
+
+type capacitySpace struct {
+	space.Space
+}
+
+func (capacitySpace) Capacity() (space.Resources, error) {
+	return space.Resources{CPU: 3, Memory: 8 << 30}, nil
+}
+
+func TestSchedulerUsesSpaceCapacity(t *testing.T) {
+	p, err := New(capacitySpace{}, space.Resources{}, space.Resources{CPU: 1, Memory: 2 << 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	if available, _ := p.State(); available != 3 {
+		t.Fatalf("capacity=%d, want 3", available)
 	}
 }

@@ -45,14 +45,17 @@
   ansible.builtin.systemd_service:
     daemon_reload: true
 
-- name: Remove binaries and runtime
+- name: Remove current and obsolete binaries
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: "{{ _hrc_path.bin }}/{{ item }}"
     state: absent
-  loop:
-    - /usr/local/bin/hrc
-    - /usr/local/bin/hrc-worker
-    - "{{ _hrc_path.runtime }}"
+  loop: "{{ ['hrcd', 'hrcw-github'] + _hrc_obsolete_binaries }}"
+  diff: false
+
+- name: Remove runtime
+  ansible.builtin.file:
+    path: "{{ _hrc_path.runtime }}"
+    state: absent
   diff: false
 
 - name: Remove configuration, secrets and data only when requested

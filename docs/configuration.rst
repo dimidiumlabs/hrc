@@ -1,7 +1,7 @@
 Configuration
 =============
 
-hrc reads a JSON file supplied with ``hrc -config PATH``. Configuration is read
+hrc reads a JSON file supplied with ``hrcd -config PATH``. Configuration is read
 at startup; restart the service to apply changes. For installation examples,
 see `Installation <./manual/installation.rst>`__. Restarting cancels active jobs and
 removes all slots.
@@ -38,7 +38,7 @@ Host settings
      - CPU and memory both zero
      - Capacity excluded from runner scheduling for the host itself.
    * - ``pathWorker``
-     - ``./hrc-worker``
+     - ``./hrcw-github``
      - Worker executable. A bare filename is resolved through PATH.
    * - ``dirRunner``
      - ``./runner``
@@ -190,6 +190,6 @@ There is no separate binary version override.
 Command line
 ------------
 
-- ``hrc -config PATH`` starts the controller using the specified JSON file.
-- ``hrc -version`` prints the build version.
-- ``hrc -help`` shows the available flags.
+- ``hrcd -config PATH`` starts the controller using the specified JSON file.
+- ``hrcd -version`` prints the build version.
+- ``hrcd -help`` shows the available flags.

@@ -8,17 +8,17 @@ load("//tools/rules_service:service.bzl", "service")
 exports_files(["BUILD.bazel"])
 
 go_library(
-    name = "cmd_lib",
+    name = "hrcd_lib",
     srcs = glob(
         ["*.go"],
         exclude = ["*_test.go"],
     ),
-    importpath = "dimidiumlabs.io/hrc/cmd",
+    importpath = "dimidiumlabs.io/hrc/cmd/hrcd",
     visibility = ["//:__pkg__"],  # keep
     deps = [
-        "//internal/provider",
+        "//internal/controller",
         "//internal/provider-github",
-        "//internal/slot",
+        "//internal/scheduler",
         "//internal/slot-pgroup",
         "//internal/space",
         "//internal/space-host",
@@ -27,31 +27,22 @@ go_library(
 )
 
 go_binary(
-    name = "hrc",
-    embed = [":cmd_lib"],
+    name = "hrcd",
+    embed = [":hrcd_lib"],
     gc_linkopts = [
         "-s",
         "-w",
     ],  # keep
     pure = "on",
     visibility = ["//visibility:public"],
-    x_defs = {"dimidiumlabs.io/hrc/cmd.Version": "{STABLE_HRC_VERSION}"},
+    x_defs = {"dimidiumlabs.io/hrc/cmd/hrcd.Version": "{STABLE_HRC_VERSION}"},
 )
 
 go_test(
-    name = "cmd_test",
+    name = "hrcd_test",
     size = "small",
     srcs = glob(["*_test.go"]),  # keep
-    embed = [":cmd_lib"],
-    deps = [
-        "//internal/provider",
-        "//internal/provider-github",
-        "//internal/slot",
-        "//internal/slot-pgroup",
-        "//internal/space",
-        "//internal/space-host",
-        "@com_github_actions_scaleset//:scaleset",
-    ],
+    embed = [":hrcd_lib"],
 )
 
 service(
@@ -65,7 +56,8 @@ service(
     ],
     os = OS,
     arch = ARCH,
-    bin = ":hrc",
+    bin = ":hrcd",
+    executable = "hrcd",
     args = [
         "-config",
         "{config}",

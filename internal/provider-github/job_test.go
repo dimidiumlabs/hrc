@@ -13,7 +13,7 @@ import (
 )
 
 func TestRejectsUnsafeJIT(t *testing.T) {
-	for _, name := range []string{"../escape", "bin/hrc-worker", ".env"} {
+	for _, name := range []string{"../escape", "bin/hrcw-github", ".env"} {
 		files, _ := json.Marshal(map[string]string{name: base64.StdEncoding.EncodeToString([]byte("x"))})
 		if _, err := parseRunnerRegistration(base64.StdEncoding.EncodeToString(files)); err == nil {
 			t.Errorf("accepted %q", name)

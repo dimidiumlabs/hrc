@@ -128,6 +128,26 @@ class CollectionTest(unittest.TestCase):
         self.assertNotIn("must-not-appear-in-output", output)
         self.assertFalse(check_root.exists())
 
+        binaries = check_root / "bin"
+        binaries.mkdir(parents=True)
+        names = {"hrc", "hrc-worker", "hrcd", "hrcw-github", "hrc-custom"}
+        for name in names:
+            (binaries / name).write_text(name)
+
+        # Exercise cleanup without running installation or service operations.
+        collection = self.root / "collections/ansible_collections/dimidiumlabs/hrc"
+        play.write_text(yaml.safe_dump([{
+            "hosts": "localhost", "gather_facts": False,
+            "vars_files": [str(collection / "vars/main.yml")],
+            "tasks": [{"ansible.builtin.include_tasks": str(collection / "roles/install/tasks/cleanup.yml")}],
+        }]))
+        self.cli("ansible.cli.playbook", "--check", *args)
+        self.assertEqual({path.name for path in binaries.iterdir()}, names)
+        self.cli("ansible.cli.playbook", *args)
+        self.assertEqual({path.name for path in binaries.iterdir()}, names - {"hrc", "hrc-worker"})
+        output = self.cli("ansible.cli.playbook", *args)
+        self.assertRegex(output, r"\bchanged=0\b")
+
 
 if __name__ == "__main__":
     unittest.main()

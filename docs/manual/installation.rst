@@ -315,11 +315,11 @@ Installation
 
    .. code-block:: powershell
 
-      Copy-Item .\hrc.exe, .\hrc-worker.exe -Destination $installRoot -Force
+      Copy-Item .\hrcd.exe, .\hrcw-github.exe -Destination $installRoot -Force
       Copy-Item .\runner -Destination "$installRoot\lib\hrc" -Recurse
 
       [xml] $xml = Get-Content .\services\hrc.winsw.xml -Raw
-      $xml.service.executable = [string]"$installRoot\hrc.exe"
+      $xml.service.executable = [string]"$installRoot\hrcd.exe"
       $xml.service.arguments = $xml.service.arguments.Replace('%SERVICE_CONFIG%', "$dataRoot\hrc.json")
       $xml.service.workingdirectory = [string]"$dataRoot\state"
       $xml.service.logpath = [string]"$dataRoot\logs"
@@ -342,7 +342,7 @@ Installation
 
       sudo ./scripts/preinstall.sh
       sudo install -d -m 0755 -o root -g wheel /usr/local/bin /usr/local/lib/hrc
-      sudo install -m 0755 -o root -g wheel hrc hrc-worker /usr/local/bin/
+      sudo install -m 0755 -o root -g wheel hrcd hrcw-github /usr/local/bin/
       sudo cp -R runner/. /usr/local/lib/hrc/
       sudo chown -R root:wheel /usr/local/lib/hrc
       sudo chmod -R u=rwX,go=rX /usr/local/lib/hrc
@@ -396,7 +396,7 @@ substitute the ``app`` mapping and private key from
       $config = @{
           id = 'build-01'
           quota = @{ cpu = 1; memory = '1GiB' }
-          pathWorker = "$installRoot\hrc-worker.exe"
+          pathWorker = "$installRoot\hrcw-github.exe"
           dirRunner = "$installRoot\lib\hrc"
           dirBuilds = 'jobs'
           dirLogs = "$dataRoot\logs"
@@ -426,7 +426,7 @@ substitute the ``app`` mapping and private key from
       {
         "id": "build-01",
         "quota": {"cpu": 1, "memory": "1GiB"},
-        "pathWorker": "/usr/local/bin/hrc-worker",
+        "pathWorker": "/usr/local/bin/hrcw-github",
         "dirRunner": "/usr/local/lib/hrc",
         "dirBuilds": "jobs",
         "dirLogs": "$log_dir",

@@ -355,9 +355,9 @@ func (w *Worker) finish(result Result, err error) error {
 
 func binaryName() string {
 	if runtime.GOOS == "windows" {
-		return "hrc-worker.exe"
+		return "hrcw-github.exe"
 	}
-	return "hrc-worker"
+	return "hrcw-github"
 }
 
 func environment(dir string, overrides []string) ([]string, error) {

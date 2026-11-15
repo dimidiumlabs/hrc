@@ -27,12 +27,38 @@
     fail_msg: Secret names must be simple filenames.
   loop: "{{ hrc_secrets.keys() | list }}"
 
+- name: Validate Worker path before removing obsolete binaries
+  ansible.builtin.assert:
+    that:
+      - _hrc_worker != item
+      - _hrc_worker_path != _hrc_obsolete_path
+    fail_msg: >-
+      pathWorker refers to an obsolete binary. Set it to
+      {{ _hrc_path.bin }}/hrcw-github{{ '.exe' if _hrc_os == 'windows' else '' }}
+      before applying this role.
+    quiet: true
+  vars:
+    _hrc_worker: >-
+      {{ (hrc_config.pathWorker | regex_replace('\\', '/') | lower | regex_replace('[.]exe$', ''))
+         if _hrc_os == 'windows' else hrc_config.pathWorker }}
+    _hrc_worker_resolved: >-
+      {{ _hrc_worker if (_hrc_worker.startswith('/') or (_hrc_os == 'windows' and _hrc_worker is match('^[a-z]:/')))
+         else _hrc_path.state ~ '/' ~ _hrc_worker }}
+    _hrc_worker_path: >-
+      {{ (_hrc_worker_resolved | regex_replace('\\', '/') | lower
+          if _hrc_os == 'windows' else _hrc_worker_resolved) | normpath }}
+    _hrc_obsolete_path: >-
+      {{ ((_hrc_path.bin ~ '/' ~ item) | regex_replace('\\', '/') | lower
+          if _hrc_os == 'windows' else (_hrc_path.bin ~ '/' ~ item)) | normpath }}
+  loop: "{{ _hrc_obsolete_binaries }}"
+  when: hrc_config.pathWorker | default('', true) | length > 0
+
 - name: Select release archive
   ansible.builtin.set_fact:
     _hrc_artifact: "{{ _hrc_release_artifacts[_hrc_os ~ '-' ~ _hrc_arch] }}"
     _hrc_source: "{{ hrc_artifact_source | regex_replace('/+$', '') }}"
     _hrc_config_defaults:
-      pathWorker: "{{ _hrc_path.bin }}/hrc-worker{{ '.exe' if _hrc_os == 'windows' else '' }}"
+      pathWorker: "{{ _hrc_path.bin }}/hrcw-github{{ '.exe' if _hrc_os == 'windows' else '' }}"
       dirRunner: "{{ _hrc_path.runtime }}"
       dirBuilds: jobs
       dirLogs: "{{ _hrc_path.logs }}"

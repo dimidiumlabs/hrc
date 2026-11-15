@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 - name: Read installed version
-  ansible.builtin.command: /usr/local/bin/hrc -version
+  ansible.builtin.command: /usr/local/bin/hrcd -version
   register: _hrc_installed
   changed_when: false
   failed_when: false
@@ -80,7 +80,7 @@
         set -eu
         install -d -m 0755 /usr/local/bin /usr/local/lib
         rm -rf /usr/local/lib/hrc
-        install -m 0755 hrc hrc-worker /usr/local/bin/
+        install -m 0755 hrcd hrcw-github /usr/local/bin/
         cp -R runner /usr/local/lib/hrc
         chown -R root:{{ 'wheel' if _hrc_os == 'darwin' else 'root' }} /usr/local/lib/hrc
         chmod -R u=rwX,go=rX /usr/local/lib/hrc
@@ -103,7 +103,7 @@
       when: _hrc_download.path is defined
       diff: false
 
-- name: Configure and start hrc
+- name: Configure hrc
   when: not (ansible_check_mode and _hrc_install_needed)
   block:
     - name: Install secret files
@@ -129,6 +129,12 @@
       diff: false
       notify: hrc install restart
 
+- name: Clean up obsolete binaries
+  ansible.builtin.include_tasks: cleanup.yml
+
+- name: Start hrc
+  when: not (ansible_check_mode and _hrc_install_needed)
+  block:
     - name: Apply configuration before accepting jobs
       ansible.builtin.meta: flush_handlers
 

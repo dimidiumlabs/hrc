@@ -8,6 +8,12 @@ Notable changes to hrc, in the format of
 `Unreleased`_
 -------------
 
+Changed
+~~~~~~~
+
+- Rename the controller executable to ``hrcd`` and the GitHub Worker to
+  ``hrcw-github``. Release archives and service names remain ``hrc``.
+
 `0.4.0`_ - 2026-11-09
 ---------------------
 

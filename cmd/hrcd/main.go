@@ -16,8 +16,11 @@ import (
 	"sync/atomic"
 	"syscall"
 
+	"dimidiumlabs.io/hrc/internal/controller"
 	github "dimidiumlabs.io/hrc/internal/provider-github"
+	"dimidiumlabs.io/hrc/internal/scheduler"
 	slotpgroup "dimidiumlabs.io/hrc/internal/slot-pgroup"
+	"dimidiumlabs.io/hrc/internal/space"
 	spacehost "dimidiumlabs.io/hrc/internal/space-host"
 
 	"github.com/actions/scaleset"
@@ -29,7 +32,7 @@ var Version = "0.0.0-dev.0+unknown"
 
 var (
 	help    = flag.Bool("help", false, "Show this help")
-	version = flag.Bool("version", false, "Show hrc version")
+	version = flag.Bool("version", false, "Show hrcd version")
 	config  = flag.String("config", "", "Path to the json config file")
 )
 
@@ -93,16 +96,19 @@ func main() {
 	}
 }
 
-func newHostScheduler(root string, reserve, quota Resources) (*scheduler, error) {
+func newHostScheduler(root string, reserve, quota Resources) (*scheduler.Scheduler, error) {
 	environment, err := spacehost.New(root, slotpgroup.New)
 	if err != nil {
 		return nil, err
 	}
-	return newSpaceScheduler(environment, reserve, quota)
+	return scheduler.New(environment,
+		space.Resources{CPU: reserve.CPU, Memory: uint64(reserve.Memory)},
+		space.Resources{CPU: quota.CPU, Memory: uint64(quota.Memory)},
+	)
 }
 
 // Concrete providers and execution backends are composed in the command.
-func run(ctx context.Context, cfg *Config, group *Group, host *scheduler) error {
+func run(ctx context.Context, cfg *Config, group *Group, host *scheduler.Scheduler) error {
 	execution := github.WorkerConfig{Path: cfg.PathWorker, Dir: cfg.DirRunner}
 	if err := execution.Validate(); err != nil {
 		return fmt.Errorf("validate runner installation: %w", err)
@@ -138,5 +144,5 @@ func run(ctx context.Context, cfg *Config, group *Group, host *scheduler) error 
 	if err != nil {
 		return err
 	}
-	return serve(ctx, queue, host, group)
+	return controller.Serve(ctx, queue, host, controller.Options{Name: group.Name, ReuseSlots: group.ReuseDirs})
 }

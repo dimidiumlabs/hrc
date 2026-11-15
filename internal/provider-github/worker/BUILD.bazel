@@ -147,7 +147,7 @@ msbuild_publish(
     packages = ["@msbuild_feed//:packages"],
     project = "Runner.Worker/Runner.Worker.csproj",
     assembly_name = "Runner.Worker",
-    binary_name = "hrc-worker",
+    binary_name = "hrcw-github",
     staged_files = {"@actions_runner//:build_constants": "Runner.Sdk/BuildConstants.cs"},
     properties = select({
         ":externals_files_" + platform: {
@@ -187,8 +187,8 @@ pkg_files(
     srcs = [":worker_binary"],
     strip_prefix = strip_prefix.files_only(),
     renames = select({
-        "@platforms//os:windows": {":worker_binary": "hrc-worker.exe"},
-        "//conditions:default": {":worker_binary": "hrc-worker"},
+        "@platforms//os:windows": {":worker_binary": "hrcw-github.exe"},
+        "//conditions:default": {":worker_binary": "hrcw-github"},
     }),
     attributes = pkg_attributes(mode = "0755"),
 )

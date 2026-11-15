@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 - name: Read installed version
-  ansible.windows.win_command: '"C:\Program Files\hrc\hrc.exe" -version'
+  ansible.windows.win_command: '"C:\Program Files\hrc\hrcd.exe" -version'
   register: _hrc_installed
   changed_when: false
   failed_when: false
@@ -138,7 +138,7 @@
         src: '{{ _hrc_download.path }}\{{ item }}'
         dest: '{{ _hrc_path.bin }}\{{ item }}'
         remote_src: true
-      loop: [hrc.exe, hrc-worker.exe]
+      loop: [hrcd.exe, hrcw-github.exe]
       notify: hrc install restart
 
     - name: Install runtime
@@ -180,7 +180,7 @@
       when: _hrc_download.path is defined
       diff: false
 
-- name: Configure and start hrc
+- name: Configure hrc
   when: not (ansible_check_mode and _hrc_install_needed)
   block:
     - name: Install secret files
@@ -200,6 +200,12 @@
       diff: false
       notify: hrc install restart
 
+- name: Clean up obsolete binaries
+  ansible.builtin.include_tasks: cleanup.yml
+
+- name: Start hrc
+  when: not (ansible_check_mode and _hrc_install_needed)
+  block:
     - name: Apply configuration before accepting jobs
       ansible.builtin.meta: flush_handlers
 

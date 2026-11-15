@@ -23,7 +23,7 @@ type Config struct {
 	// It is required to start a job; closing a Worker does not close its slot.
 	Slot slot.Slot
 
-	// Path selects the hrc-worker executable. A bare name is resolved through PATH.
+	// Path selects the hrcw-github executable. A bare name is resolved through PATH.
 	// Dir contains shared scripts/ and externals/ resources and an optional .env.
 	// WorkDir is the job's private working directory and the process cwd.
 	Path    string

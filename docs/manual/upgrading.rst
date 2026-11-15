@@ -8,6 +8,13 @@ do not repeat the first-time configuration examples.
 For a new host, follow `Installation <./installation.rst>`__ instead.
 To uninstall hrc, see `Removal <./removal.rst>`__.
 
+The controller executable is now ``hrcd`` and the GitHub Worker is
+``hrcw-github`` (with ``.exe`` on Windows). When upgrading from a release using
+``hrc`` and ``hrc-worker``, update any explicit ``pathWorker`` setting in your
+JSON or Ansible ``hrc_config`` to the new Worker path. Copy the new service
+definition as part of the upgrade. Release archives and service names remain
+``hrc``.
+
 Contents
 --------
 

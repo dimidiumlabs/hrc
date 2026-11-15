@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
 // SPDX-License-Identifier: BSD-3-Clause
 
-package main
+package controller
 
 import (
 	"bytes"
@@ -32,15 +32,15 @@ import (
 
 	"dimidiumlabs.io/hrc/internal/provider"
 	github "dimidiumlabs.io/hrc/internal/provider-github"
+	"dimidiumlabs.io/hrc/internal/scheduler"
+	slotpgroup "dimidiumlabs.io/hrc/internal/slot-pgroup"
+	"dimidiumlabs.io/hrc/internal/space"
+	spacehost "dimidiumlabs.io/hrc/internal/space-host"
 
 	"github.com/actions/scaleset"
 )
 
 func TestMain(m *testing.M) {
-	if len(os.Args) == 2 && os.Args[1] == "hrc-slot-child" {
-		time.Sleep(time.Hour)
-		os.Exit(0)
-	}
 	if len(os.Args) > 1 && os.Args[1] == "spawnclient" {
 		fd, _ := strconv.Atoi(os.Args[2])
 		input := os.NewFile(uintptr(fd), "worker-input")
@@ -417,7 +417,7 @@ type testRunner struct {
 	jitRequested <-chan struct{}
 }
 
-func runFixture(t *testing.T, fixture *testRunner, host *scheduler, group *Group, grace time.Duration) (provider.Result, error) {
+func runFixture(t *testing.T, fixture *testRunner, host *scheduler.Scheduler, options Options, grace time.Duration) (provider.Result, error) {
 	t.Helper()
 	queue, err := github.New(fixture.config)
 	if err != nil {
@@ -428,7 +428,7 @@ func runFixture(t *testing.T, fixture *testRunner, host *scheduler, group *Group
 	result := provider.Unknown
 	var runErr error
 	err = queue.Serve(ctx, host, func(ctx context.Context, job provider.Job) error {
-		result, runErr = runJob(ctx, job, host, group, grace)
+		result, runErr = runJob(ctx, job, host, options, grace)
 		cancel()
 		return runErr
 	})
@@ -457,7 +457,7 @@ func TestControllerJobLifecycle(t *testing.T) {
 				grace = 150 * time.Millisecond
 			}
 			host := newTestScheduler(t, t.TempDir(), 1)
-			result, err := runFixture(t, w, host, &Group{}, grace)
+			result, err := runFixture(t, w, host, Options{}, grace)
 			switch mode {
 			case "success", "refresh", "retry":
 				if result != provider.Succeeded || err != nil {
@@ -575,7 +575,7 @@ func TestAcquisitionFailureDoesNotPrepareExecution(t *testing.T) {
 func TestRunsReuseSlot(t *testing.T) {
 	root := t.TempDir()
 	host := newTestScheduler(t, root, 1)
-	group := &Group{Name: "smoke", ReuseDirs: true}
+	group := Options{Name: "smoke", ReuseSlots: true}
 	cache := filepath.Join(root, "smoke-1", "cache")
 	var identity, runnerName string
 	for i := range 2 {
@@ -684,9 +684,9 @@ func TestRunRetriesSessionWithoutInterruptingRunners(t *testing.T) {
 		}
 		cancel()
 	}()
-	cfg := &Config{Id: "host", PathWorker: filepath.Join(runner.dir, "bin", workerBinary()), DirBuilds: t.TempDir(), DirLogs: t.TempDir(), DirRunner: runner.dir}
-	group := &Group{Url: api.URL + "/org", Name: "smoke", Group: scaleset.DefaultRunnerGroup, ReuseDirs: true, Token: Secret{Src: "inline", Value: "pat"}}
-	host := newTestScheduler(t, cfg.DirBuilds, 1)
+	root := t.TempDir()
+	group := Options{Name: "smoke", ReuseSlots: true}
+	host := newTestScheduler(t, root, 1)
 	configuration := runner.config
 	configuration.NewClient = func() (*scaleset.Client, error) {
 		return scaleset.NewClientWithPersonalAccessToken(scaleset.NewClientWithPersonalAccessTokenConfig{
@@ -697,7 +697,7 @@ func TestRunRetriesSessionWithoutInterruptingRunners(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := serve(ctx, queue, host, group); err != nil {
+	if err := Serve(ctx, queue, host, group); err != nil {
 		t.Fatalf("session failures must be retried: %v", err)
 	}
 	if err := host.Close(); err != nil {
@@ -706,7 +706,7 @@ func TestRunRetriesSessionWithoutInterruptingRunners(t *testing.T) {
 	if completed.Load() != 1 {
 		t.Errorf("job interrupted by session failure: complete=%d", completed.Load())
 	}
-	if entries, err := os.ReadDir(cfg.DirBuilds); err != nil || len(entries) != 0 {
+	if entries, err := os.ReadDir(root); err != nil || len(entries) != 0 {
 		t.Fatalf("reusable slots survived controller shutdown: %v, %v", entries, err)
 	}
 	if jits.Load() != 1 {
@@ -728,9 +728,9 @@ func TestRunRetriesSessionWithoutInterruptingRunners(t *testing.T) {
 
 func workerBinary() string {
 	if runtime.GOOS == "windows" {
-		return "hrc-worker.exe"
+		return "hrcw-github.exe"
 	}
-	return "hrc-worker"
+	return "hrcw-github"
 }
 
 func testRunnerOS() string {
@@ -742,4 +742,31 @@ func testRunnerOS() string {
 	default:
 		return "Linux"
 	}
+}
+
+type capacitySpace struct {
+	space.Space
+	cpu float64
+}
+
+func (s capacitySpace) Capacity() (space.Resources, error) {
+	return space.Resources{CPU: s.cpu}, nil
+}
+
+func newTestScheduler(t *testing.T, root string, total int) *scheduler.Scheduler {
+	t.Helper()
+	environment, err := spacehost.New(root, slotpgroup.New)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := scheduler.New(capacitySpace{Space: environment, cpu: float64(total)}, space.Resources{}, space.Resources{CPU: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := p.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return p
 }

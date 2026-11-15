@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
 // SPDX-License-Identifier: BSD-3-Clause
 
-package main
+package controller
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"dimidiumlabs.io/hrc/internal/provider"
+	"dimidiumlabs.io/hrc/internal/scheduler"
 	"dimidiumlabs.io/hrc/internal/slot"
 	"dimidiumlabs.io/hrc/internal/space"
 )
@@ -123,11 +124,14 @@ func (r *fakeRun) Close() error {
 	return nil
 }
 
-func fakeController(t *testing.T) (*scheduler, *fakeSpace, *fakeJob, *[]string) {
+func fakeController(t *testing.T) (*scheduler.Scheduler, *fakeSpace, *fakeJob, *[]string) {
 	t.Helper()
 	calls := &[]string{}
 	environment := &fakeSpace{calls: calls}
-	host := newScheduler(environment, 1)
+	host, err := scheduler.New(environment, space.Resources{}, space.Resources{CPU: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		if err := host.Close(); err != nil {
 			t.Error(err)
@@ -144,7 +148,7 @@ func TestControllerWithFakeProviderAndSpace(t *testing.T) {
 		t.Run(result.String(), func(t *testing.T) {
 			host, environment, job, calls := fakeController(t)
 			job.local.finish(result)
-			if err := serve(t.Context(), &fakeQueue{job}, host, &Group{}); err != nil {
+			if err := Serve(t.Context(), &fakeQueue{job}, host, Options{}); err != nil {
 				t.Fatal(err)
 			}
 			if job.result != result || job.failure != nil || environment.created != 1 {
@@ -174,7 +178,7 @@ func TestCancellationBeforeExecution(t *testing.T) {
 			} else {
 				cancel()
 			}
-			if err := serve(t.Context(), &fakeQueue{job}, host, &Group{}); err != nil {
+			if err := Serve(t.Context(), &fakeQueue{job}, host, Options{}); err != nil {
 				t.Fatal(err)
 			}
 			if job.started || job.result != provider.Canceled || environment.created != expected {
@@ -200,7 +204,7 @@ func TestControllerStopsRuns(t *testing.T) {
 			if mode == "timeout" {
 				job.local.stop = nil
 			}
-			err := serve(ctx, &fakeQueue{job}, host, &Group{})
+			err := Serve(ctx, &fakeQueue{job}, host, Options{})
 			if job.result != provider.Canceled || (err != nil) != (mode != "cancel") {
 				t.Fatalf("result=%s error=%v", job.result, err)
 			}
@@ -222,23 +226,11 @@ func TestPreparationFailureCompletesAcquiredJob(t *testing.T) {
 	host, environment, job, calls := fakeController(t)
 	failure := errors.New("space is unavailable")
 	environment.prepare = func() error { return failure }
-	err := serve(t.Context(), &fakeQueue{job}, host, &Group{})
+	err := Serve(t.Context(), &fakeQueue{job}, host, Options{})
 	if !errors.Is(err, failure) || !errors.Is(job.failure, failure) || job.result != provider.Failed || job.started {
 		t.Fatalf("started=%v result=%s completion=%v error=%v", job.started, job.result, job.failure, err)
 	}
 	if !slices.Equal(*calls, []string{"complete", "job-close"}) {
 		t.Fatalf("cleanup after preparation failure: %v", *calls)
-	}
-}
-
-func TestSchedulerUsesSpaceCapacity(t *testing.T) {
-	environment := &fakeSpace{}
-	host, err := newSpaceScheduler(environment, Resources{}, Resources{CPU: 1, Memory: 2 << 30})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer host.Close()
-	if available, _ := host.State(); available != 3 {
-		t.Fatalf("capacity=%d, want 3", available)
 	}
 }

@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+- name: Remove obsolete Unix binaries
+  ansible.builtin.file:
+    path: "{{ _hrc_path.bin }}/{{ item }}"
+    state: absent
+  loop: "{{ _hrc_obsolete_binaries }}"
+  when: _hrc_os != 'windows'
+
+- name: Remove obsolete Windows binaries
+  ansible.windows.win_file:
+    path: '{{ _hrc_path.bin }}\{{ item }}.exe'
+    state: absent
+  loop: "{{ _hrc_obsolete_binaries }}"
+  when: _hrc_os == 'windows'
