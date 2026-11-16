@@ -19,6 +19,7 @@ import (
 
 	"dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
+	platformruntime "dimidiumlabs.io/hrc/internal/runtime"
 	"dimidiumlabs.io/hrc/internal/space"
 	"google.golang.org/protobuf/proto"
 )
@@ -72,14 +73,11 @@ func New(name, root string, command []string, config *space.Config) (*Space, err
 		return nil, errors.Join(space.ErrInvalidConfig, err)
 	}
 	command = slices.Clone(command)
-	path, err := exec.LookPath(command[0])
+	path, err := platformruntime.LookPath(command[0])
 	if err != nil {
 		return nil, fmt.Errorf("%w: find scheduler: %w", space.ErrInvalidConfig, err)
 	}
-	command[0], err = filepath.Abs(path)
-	if err != nil {
-		return nil, errors.Join(space.ErrInvalidConfig, err)
-	}
+	command[0] = path
 	return &Space{name: name, root: root, command: command, config: proto.CloneOf(config)}, nil
 }
 

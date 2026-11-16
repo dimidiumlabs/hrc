@@ -31,10 +31,12 @@ func TestStartWorkerPipesEnvironmentAndReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("HRC_LAUNCH_LAYER", "inherited")
+	// A service may have no usable PATH. Resolve the Worker beside this binary.
+	t.Setenv("PATH", "")
 	var identity string
 	for i := 0; i < 2; i++ {
 		var output bytes.Buffer
-		p, input, err := s.StartWorker(t.Context(), worker.Config{Path: self, WorkDir: s.Cwd(), Dir: assets, Stdout: &output}, []string{"HRC_LAUNCH_LAYER=caller"})
+		p, input, err := s.StartWorker(t.Context(), worker.Config{Path: filepath.Base(self), WorkDir: s.Cwd(), Dir: assets, Stdout: &output}, []string{"HRC_LAUNCH_LAYER=caller"})
 		if err != nil {
 			t.Fatal(err)
 		}

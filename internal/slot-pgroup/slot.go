@@ -15,6 +15,7 @@ import (
 	"dimidiumlabs.io/hrc/internal/provider"
 	github "dimidiumlabs.io/hrc/internal/provider-github"
 	"dimidiumlabs.io/hrc/internal/provider-github/worker"
+	platformruntime "dimidiumlabs.io/hrc/internal/runtime"
 	"dimidiumlabs.io/hrc/internal/slot"
 )
 
@@ -80,8 +81,12 @@ func (s *Slot) Exec(ctx context.Context, command Command) (Process, error) {
 
 // StartWorker uses GitHub's original spawnclient pipe protocol directly.
 func (s *Slot) StartWorker(ctx context.Context, config worker.Config, env []string) (worker.Process, io.WriteCloser, error) {
+	path, err := platformruntime.LookPath(config.Path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("find Worker: %w", err)
+	}
 	p, err := s.Exec(ctx, Command{
-		Path: config.Path, Dir: config.WorkDir, Args: []string{"spawnclient"},
+		Path: path, Dir: config.WorkDir, Args: []string{"spawnclient"},
 		Env: env, EnvFile: s.Path(config.Dir, ".env"),
 		Pipes:  []PipeDirection{PipeRead, PipeWrite},
 		Stdout: config.Stdout, Stderr: config.Stderr,

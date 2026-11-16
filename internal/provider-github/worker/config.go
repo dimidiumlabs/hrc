@@ -34,7 +34,8 @@ type Config struct {
 	// It is required to start a job; closing a Worker does not close its slot.
 	Environment Environment
 
-	// Path selects the hrcw-github executable. A bare name is resolved through PATH.
+	// Path selects the hrcw-github executable. Local pgroup slots resolve bare
+	// names beside the scheduler executable first, then through PATH.
 	// Dir contains shared scripts/ and externals/ resources and an optional .env.
 	// WorkDir is the job's private working directory and the process cwd.
 	Path    string
