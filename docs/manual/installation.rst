@@ -77,11 +77,21 @@ URL. Prepare the token using `GitHub access <./github-auth.rst>`__.
        - role: dimidiumlabs.hrc.install
          vars:
            hrc_config:
-             id: build-01
-             quota: { cpu: 1, memory: 1GiB }
-             groups:
-               - url: https://github.com/YOUR-OWNER/YOUR-REPO
-                 name: hrc-builds
+             instanceId: build-01
+             spaces:
+               - id: build
+                 type: host
+             slots:
+               - id: workers
+                 space: build
+                 type: pgroup
+                 quota: { cpu: 1, memory: 1GiB }
+                 ephemeral: true
+             forges:
+               - id: hrc-builds
+                 slot: workers
+                 type: github
+                 url: https://github.com/YOUR-OWNER/YOUR-REPO
                  pat: { type: file, value: /etc/hrc/secrets/github-token }
            hrc_secrets:
              github-token: "{{ github_token }}"
@@ -105,7 +115,7 @@ For GitHub App authentication, substitute the ``app`` mapping and private key
 described in `GitHub access <./github-auth.rst#github-app>`__.
 Choose a distinct host ID and quotas appropriate for each machine.
 
-The role supplies the Worker and resource paths, writes configuration and
+The role supplies the resource and working directory paths, writes configuration and
 secrets without logging their values, and enables and starts the service.
 Installation or configuration changes restart it, cancelling active jobs and
 cleaning up workspaces. ``--check`` does not install or stop anything;
@@ -315,7 +325,7 @@ Installation
 
    .. code-block:: powershell
 
-      Copy-Item .\hrcd.exe, .\hrcw-github.exe -Destination $installRoot -Force
+      Copy-Item .\hrcd.exe, .\hrcs.exe, .\hrcw-github.exe -Destination $installRoot -Force
       Copy-Item .\runner -Destination "$installRoot\lib\hrc" -Recurse
 
       [xml] $xml = Get-Content .\services\hrc.winsw.xml -Raw
@@ -342,7 +352,7 @@ Installation
 
       sudo ./scripts/preinstall.sh
       sudo install -d -m 0755 -o root -g wheel /usr/local/bin /usr/local/lib/hrc
-      sudo install -m 0755 -o root -g wheel hrcd hrcw-github /usr/local/bin/
+      sudo install -m 0755 -o root -g wheel hrcd hrcs hrcw-github /usr/local/bin/
       sudo cp -R runner/. /usr/local/lib/hrc/
       sudo chown -R root:wheel /usr/local/lib/hrc
       sudo chmod -R u=rwX,go=rX /usr/local/lib/hrc
@@ -394,16 +404,19 @@ substitute the ``app`` mapping and private key from
       $installRoot = "$env:ProgramFiles\hrc"
       $dataRoot = "$env:ProgramData\hrc"
       $config = @{
-          id = 'build-01'
-          quota = @{ cpu = 1; memory = '1GiB' }
-          pathWorker = "$installRoot\hrcw-github.exe"
-          dirRunner = "$installRoot\lib\hrc"
-          dirBuilds = 'jobs'
-          dirLogs = "$dataRoot\logs"
-          groups = @(
+          instanceId = 'build-01'
+          spaces = @(@{ id = 'build'; type = 'host'; slot = @{ type = 'pgroup'; ephemeral = $true; quota = @{ cpu = 1; memory = '1GiB' } } })
+          directories = @{
+              runtime = "$installRoot\lib\hrc"
+              spaces = 'jobs'
+              logs = "$dataRoot\logs"
+          }
+          forges = @(
               @{
+                  id = 'hrc-builds'
+                  space = 'build'
+                  type = 'github'
                   url = 'https://github.com/YOUR-OWNER/YOUR-REPO'
-                  name = 'hrc-builds'
                   pat = @{ type = 'file'; value = "$dataRoot\secrets\github-token" }
               }
           )
@@ -424,15 +437,19 @@ substitute the ``app`` mapping and private key from
 
       sudo tee "$config_dir/hrc.json" > /dev/null <<EOF
       {
-        "id": "build-01",
-        "quota": {"cpu": 1, "memory": "1GiB"},
-        "pathWorker": "/usr/local/bin/hrcw-github",
-        "dirRunner": "/usr/local/lib/hrc",
-        "dirBuilds": "jobs",
-        "dirLogs": "$log_dir",
-        "groups": [{
+        "instanceId": "build-01",
+        "spaces": [{"id": "build", "type": "host"}],
+        "slots": [{"id": "workers", "space": "build", "type": "pgroup", "ephemeral": true, "quota": {"cpu": 1, "memory": "1GiB"}}],
+        "directories": {
+          "runtime": "/usr/local/lib/hrc",
+          "spaces": "jobs",
+          "logs": "$log_dir"
+        },
+        "forges": [{
+          "id": "hrc-builds",
+          "slot": "workers",
+          "type": "github",
           "url": "https://github.com/YOUR-OWNER/YOUR-REPO",
-          "name": "hrc-builds",
           "pat": {"type": "file", "value": "$config_dir/secrets/github-token"}
         }]
       }

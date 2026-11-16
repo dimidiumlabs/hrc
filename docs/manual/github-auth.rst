@@ -14,10 +14,10 @@ Set each configured group's ``url`` to one of:
 - **Organization:** ``https://github.com/ORG``. Make sure the selected GitHub
   runner group permits access from the repositories that will use it.
 
-A host can have several configured groups with different URLs or credentials.
-The configuration's ``group`` field selects a GitHub runner group; ``name``
+A host can have several configured forges with different URLs or credentials.
+The provider's ``group`` field selects a GitHub runner group; ``id``
 is the scale set name. See the `configuration reference
-<../configuration.rst#groups>`__ for the distinction.
+<../configuration.rst#github-provider>`__ for the distinction.
 
 GitHub App
 ----------

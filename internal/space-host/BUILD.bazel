@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Nikolay Govorov
 # SPDX-License-Identifier: BSD-3-Clause
 
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 exports_files(["BUILD.bazel"])
 
@@ -14,8 +14,26 @@ go_library(
     importpath = "dimidiumlabs.io/hrc/internal/space-host",
     visibility = ["//visibility:public"],
     deps = [
-        "//internal/runtime",
-        "//internal/slot",
+        "//internal/config",
+        "//internal/provider",
+        "//internal/scheduler-ipc",
+        "//internal/space",
+    ] + select({
+        "@rules_go//go/platform:windows": [
+            "@org_golang_x_sys//windows",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+go_test(
+    name = "space-host_test",
+    size = "small",
+    srcs = glob(["*_test.go"]),
+    embed = [":space-host"],
+    deps = [
+        "//internal/provider",
+        "//internal/scheduler-ipc",
         "//internal/space",
     ],
 )

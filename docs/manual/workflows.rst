@@ -32,7 +32,7 @@ add a checkout step and your project's build commands instead.
 Selecting runners
 -----------------
 
-With no ``labels`` in hrc's group configuration, the scale set name is its
+With no ``labels`` in the forge configuration, the scale set name is its
 routing label:
 
 .. code-block:: yaml
@@ -54,10 +54,10 @@ the GitHub runner group's repository access policy must also allow the job.
 Choosing a slot policy
 ----------------------
 
-``reuseDirs`` is a policy of the configured hrc group, not a workflow option.
+``ephemeral`` is a policy of the configured slot pool, not a workflow option.
 To offer both clean and warm environments on one host, configure separate
-groups with distinct names or labels and route jobs to the appropriate group.
-For example, with groups named ``checks`` and ``builds`` and no explicit labels:
+spaces, slot pools and forges with distinct IDs or labels.
+For example, with forges with IDs ``checks`` and ``builds`` and no explicit labels:
 
 .. code-block:: yaml
 
@@ -65,23 +65,23 @@ For example, with groups named ``checks`` and ``builds`` and no explicit labels:
      lint:
        runs-on: checks
        steps:
-         - run: echo "Use the group configured with reuseDirs disabled"
+         - run: echo "Use the space configured with ephemeral enabled"
      build:
        runs-on: builds
        steps:
-         - run: echo "Use the group configured with reuseDirs enabled"
+         - run: echo "Use the space configured with ephemeral disabled"
 
 A reusable slot retains files and processes until controller shutdown; it does
 not guarantee that a particular job gets the same slot every time. Make build
 commands safe for either a cold or warm workspace. See
-`group configuration <../configuration.rst#groups>`__ and
+`forge configuration <../configuration.rst#spaces-and-forges>`__ and
 `workspace lifetime <./operation.rst#workspaces-and-cleanup>`__.
 
 If the job does not start
 -------------------------
 
 - Check that the service is running and its logs show a scale set connection.
-- Match ``runs-on`` to the configured name or explicit labels.
+- Match ``runs-on`` to the configured forge ID or explicit labels.
 - For organization runners, check the runner group's repository access.
 - Check credentials, organization approval, token expiry, and available host
   capacity. A busy host cannot accept another runner until a slot is released.

@@ -13,4 +13,5 @@ go_library(
     ),
     importpath = "dimidiumlabs.io/hrc/internal/slot",
     visibility = ["//visibility:public"],
+    deps = ["//internal/provider"],
 )

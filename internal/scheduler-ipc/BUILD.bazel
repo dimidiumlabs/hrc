@@ -6,13 +6,13 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 exports_files(["BUILD.bazel"])
 
 go_library(
-    name = "scheduler",
+    name = "scheduler-ipc",
     srcs = glob(
         ["*.go"],
         exclude = ["*_test.go"],
     ),
-    importpath = "dimidiumlabs.io/hrc/internal/scheduler",
-    visibility = ["//visibility:public"],
+    importpath = "dimidiumlabs.io/hrc/internal/scheduler-ipc",
+    visibility = ["//:__subpackages__"],
     deps = [
         "//internal/provider",
         "//internal/slot",
@@ -21,14 +21,11 @@ go_library(
 )
 
 go_test(
-    name = "scheduler_test",
-    size = "small",
-    srcs = glob(["*_test.go"]),  # keep
-    embed = [":scheduler"],
+    name = "scheduler-ipc_test",
+    srcs = glob(["*_test.go"]),
+    embed = [":scheduler-ipc"],
     deps = [
-        "//internal/slot",
-        "//internal/slot-pgroup",
+        "//internal/provider",
         "//internal/space",
-        "//internal/space-host",
     ],
 )

@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+exports_files(["BUILD.bazel"])
+
+go_library(
+    name = "config",
+    srcs = glob(
+        ["*.go"],
+        exclude = ["*_test.go"],
+    ),  # keep
+    importpath = "dimidiumlabs.io/hrc/internal/config",
+    visibility = ["//:__subpackages__"],
+    x_defs = {"dimidiumlabs.io/hrc/internal/config.Version": "{STABLE_HRC_VERSION}"},
+    deps = [
+        "@in_yaml_go_yaml_v3//:yaml",
+    ],
+)
+
+go_test(
+    name = "config_test",
+    size = "small",
+    srcs = glob(["*_test.go"]),  # keep
+    embed = [":config"],
+)

@@ -10,9 +10,8 @@ To uninstall hrc, see `Removal <./removal.rst>`__.
 
 The controller executable is now ``hrcd`` and the GitHub Worker is
 ``hrcw-github`` (with ``.exe`` on Windows). When upgrading from a release using
-``hrc`` and ``hrc-worker``, update any explicit ``pathWorker`` setting in your
-JSON or Ansible ``hrc_config`` to the new Worker path. Copy the new service
-definition as part of the upgrade. Release archives and service names remain
+``hrc`` and ``hrc-worker``, copy the new service definition as part of the
+upgrade. The service PATH must include ``hrcd``, ``hrcs`` and ``hrcw-github``. Release archives and service names remain
 ``hrc``.
 
 Contents
@@ -109,3 +108,6 @@ then run the commands below from its extracted directory.
 
 For other Linux init systems, stop and start the controller yourself.
 Use `Operation <./operation.rst>`__ to check service status and logs afterward.
+
+Group directory settings under ``directories``: ``dirBuilds`` becomes
+``spaces``, ``dirLogs`` becomes ``logs``, and ``dirRunner`` becomes ``runtime``.

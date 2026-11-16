@@ -1,16 +1,45 @@
 Configuration
 =============
 
-hrc reads a JSON file supplied with ``hrcd -config PATH``. Configuration is read
+hrc reads the file supplied with ``hrcd -config PATH``. Its extension selects
+the format: ``.json``, ``.yaml`` or ``.yml``. Configuration is read
 at startup; restart the service to apply changes. For installation examples,
 see `Installation <./manual/installation.rst>`__. Restarting cancels active jobs and
 removes all slots.
+
+``instanceId``, forge, slot pool and space ``id`` values, and their references
+must match ``[A-Za-z][A-Za-z0-9_-]*``: an ASCII letter first, then ASCII letters,
+digits, underscores or hyphens.
+
+For example, a manual YAML config can be started with
+``hrcd -config hrc.yaml``:
+
+.. code-block:: yaml
+
+   instanceId: build-01
+   spaces:
+     - id: build
+       type: host
+       resources: {cpu: 8, memory: 16GiB}
+   slots:
+     - id: workers
+       space: build
+       type: pgroup
+       ephemeral: true
+       quota: {cpu: 2, memory: 4GiB}
+   forges:
+     - id: project-builds
+       type: github
+       slot: workers
+       url: https://github.com/OWNER/REPO
+       pat: {type: env, value: GITHUB_TOKEN}
 
 Contents
 --------
 
 - `Host settings <#host-settings>`__
-- `Groups <#groups>`__
+- `Spaces and forges <#spaces-and-forges>`__
+- `GitHub provider <#github-provider>`__
 - `Resources <#resources>`__
 - `Secrets <#secrets>`__
 - `Ansible variables <#ansible-variables>`__
@@ -25,43 +54,86 @@ Host settings
    * - Field
      - Default
      - Meaning
-   * - ``id``
+   * - ``instanceId``
      - Required
-     - Host identifier used in GitHub sessions and runner names. Give each host a distinct ID.
-   * - ``groups``
-     - No groups
-     - Array of GitHub connections and slot policies. Configure at least one to run jobs.
-   * - ``quota``
-     - CPU and memory both zero
-     - Resource accounting per busy runner. Without a quota, concurrency is not limited by resource accounting.
-   * - ``reserve``
-     - CPU and memory both zero
-     - Capacity excluded from runner scheduling for the host itself.
-   * - ``pathWorker``
-     - ``./hrcw-github``
-     - Worker executable. A bare filename is resolved through PATH.
-   * - ``dirRunner``
+     - Controller instance identifier used in GitHub sessions and runner names. Give each instance a distinct ID.
+   * - ``spaces``
+     - No spaces
+     - Named environments and their resource budgets.
+   * - ``slots``
+     - No slot pools
+     - Named pools of identical slots, each assigned to one space.
+   * - ``forges``
+     - No forges
+     - Named provider connections, each assigned to one slot pool.
+   * - ``directories.runtime``
      - ``./runner``
      - Shared read-only Worker resources.
-   * - ``dirBuilds``
+   * - ``directories.spaces``
      - ``./hrc/build``
-     - Parent of slot workspaces.
-   * - ``dirLogs``
+     - Parent of space directories and their slot workspaces.
+   * - ``directories.logs``
      - ``./hrc/log``
      - Parent of per-job diagnostics under ``jobs/``.
 
 Relative paths use the controller's working directory, not the directory
-containing the JSON file. The supplied services use their state directory as
+containing the config file. The supplied services use their state directory as
 working directory. Keep state and job directory paths free of spaces on macOS.
-The Ansible role supplies installation-specific defaults for all four paths;
+The Ansible role supplies installation-specific defaults for these paths;
 the table above describes the controller's own defaults.
 
-Groups
-------
+Spaces and forges
+-----------------
 
-A configured group describes one GitHub runner scale set and its slot policy.
-Several configured groups can share a host's capacity. Do not confuse these
-entries with GitHub's runner groups.
+Each forge names one slot pool; several forges can share it. Each pool names one
+space. Currently, at most one pool may reference a space. This is an implementation
+restriction, not a requirement of the configuration model. A space without a pool
+is not started. The supported implementations are host spaces and process-group slots.
+
+.. code-block:: yaml
+
+   instanceId: build-01
+   spaces:
+     - id: build
+       type: host
+       resources:
+         cpu: 8
+         memory: 16GiB
+   slots:
+     - id: workers
+       space: build
+       type: pgroup
+       quota:
+         cpu: 2
+         memory: 4GiB
+       ephemeral: false
+   forges:
+     - id: project-builds
+       slot: workers
+       type: github
+       url: https://github.com/OWNER/REPO
+       pat:
+         type: env
+         value: GITHUB_TOKEN
+
+``resources`` is the space budget, and pool ``quota`` is the allocation per slot.
+An omitted budget dimension uses the full host capacity.
+Space budgets must fit together within that capacity. Values are fixed until
+restart. The optional ``dir`` defaults to ``directories.spaces/ID``; slots live under
+its ``slots/`` directory. ``ephemeral`` in the slot pool defaults to false (reusable slots). Set it to true to
+destroy each slot after its Run. The current space type is ``host`` and slot
+type is ``pgroup``; these are also the defaults when omitted.
+
+Each forge has a unique ``id``, a ``slot`` reference, a provider ``type``,
+and provider-specific fields at the same level. Currently ``github`` is supported.
+Reusable slots can pass between forges sharing a pool. Use separate spaces
+to keep their workspaces separate.
+
+GitHub provider
+---------------
+
+The following fields belong directly to a GitHub forge.
+The common forge ``id`` is used as the GitHub scale set name.
 
 .. list-table::
    :header-rows: 1
@@ -72,30 +144,24 @@ entries with GitHub's runner groups.
    * - ``url``
      - Required
      - Full repository or organization URL, for example ``https://github.com/OWNER/REPO``.
-   * - ``name``
-     - Required
-     - Scale set name, unique within this host's configuration. Also used to name reusable slot directories.
    * - ``group``
      - ``default``
      - GitHub runner group containing the scale set. Organization policies determine which repositories can use it.
    * - ``labels``
      - Scale set name
-     - With no explicit labels, jobs select the scale set by ``name``. Otherwise only the configured labels are used.
+     - With no explicit labels, jobs select the scale set by ``id``. Otherwise only the configured labels are used.
    * - ``pat``
      - Not set
      - PAT described by a secret object.
    * - ``app``
      - Not set
      - GitHub App credentials: ``clientId`` (string), ``installationId`` (positive integer), and ``privateKey`` (secret object).
-   * - ``reuseDirs``
-     - ``false``
-     - Retain the slot's workspace and child processes between jobs in this group, until controller shutdown.
+   * - ``runnerVersion``
+     - Runner version pinned at build time
+     - GitHub Runner protocol version advertised by this queue.
 
 Supply either ``pat`` or ``app``. If both mappings validate, hrc selects the App.
 See `GitHub access <./manual/github-auth.rst>`__ for credential setup and permissions.
-With ``reuseDirs``, ``name`` must also be a valid directory name: it cannot be
-``.`` or ``..``, or contain a slash, backslash, or colon.
-
 Changing labels recreates the scale set on startup, rather than updating it in
 place. Other hosts using the same scale set should agree on its labels.
 There are no automatic ``self-hosted``, OS, or architecture labels; include
@@ -105,22 +171,26 @@ those explicitly if you want to route by them. See
 Resources
 ---------
 
-``quota`` and ``reserve`` each accept ``cpu`` and ``memory``:
+Space ``resources`` and slot ``quota`` each accept ``cpu`` and ``memory``:
 
-.. code-block:: json
+.. code-block:: yaml
 
-   "quota": {"cpu": 2, "memory": "4GiB"},
-   "reserve": {"cpu": 1, "memory": "2GiB"}
+   resources:
+     cpu: 8
+     memory: 16GiB
+   quota:
+     cpu: 2
+     memory: 4GiB
 
 - ``cpu`` is a non-negative number of logical CPU threads, including fractions.
-- ``memory`` is a JSON string containing integer bytes or an integer followed
-  by ``KiB``, ``MiB``, ``GiB``, or ``TiB``, for example ``"4GiB"``.
+- ``memory`` is a string containing integer bytes or an integer followed
+  by ``KiB``, ``MiB``, ``GiB``, or ``TiB``, for example ``4GiB``.
 - Zero or an omitted quota field leaves that resource unaccounted.
 
-For each accounted resource, hrc subtracts the reserve from host capacity and
-divides the remainder by the per-runner quota, rounding down. The smallest
-result is the shared concurrency limit for all groups on the host. Startup
-fails if the configured resources leave no room for a runner.
+Each space divides its resource budget by its per-slot quota, rounding down.
+The smallest result is its concurrency limit, shared by the forges assigned
+to that space. Startup fails if the budget cannot hold one slot. Leave part
+of the host capacity unassigned to keep it available for the system.
 
 These are scheduling values, **not enforced CPU or memory limits**. Capacity
 is calculated at startup, not continuously adjusted to currently free memory.
@@ -133,9 +203,10 @@ Secrets
 
 ``pat`` and ``app.privateKey`` use the same object format:
 
-.. code-block:: json
+.. code-block:: yaml
 
-   {"type": "file", "value": "/etc/hrc/secrets/github-token"}
+   type: file
+   value: /etc/hrc/secrets/github-token
 
 .. list-table::
    :header-rows: 1
@@ -147,7 +218,7 @@ Secrets
    * - ``env``
      - Name of an environment variable in the controller's environment.
    * - ``inline``
-     - The secret itself. Anyone who can read the JSON configuration can read it.
+     - The secret itself. Anyone who can read the configuration can read it.
 
 Leading and trailing whitespace is removed from secret values; an empty secret
 is an error. Services do not inherit your interactive shell's ``GITHUB_TOKEN``.
@@ -165,7 +236,7 @@ Ansible variables
      - Meaning
    * - ``hrc_config``
      - Required for installation
-     - Mapping written as JSON. Must contain ``id`` and a nonempty ``groups`` array.
+     - Mapping written as JSON. Must contain ``instanceId``, nonempty ``spaces``, ``slots`` and ``forges``.
    * - ``hrc_secrets``
      - ``{}``
      - Simple filenames mapped to secret contents, written under the target's secrets directory.
@@ -176,8 +247,7 @@ Ansible variables
      - ``false``
      - Remove role only: also delete configuration, secrets, state, and logs at default locations.
 
-The install role supplies ``pathWorker``, ``dirRunner``, ``dirBuilds``, and
-``dirLogs``; ``hrc_config`` can override them. Other fields pass through unchanged.
+The install role supplies ``directories.runtime``, ``directories.spaces``, and ``directories.logs``; ``hrc_config`` can override them. Other fields pass through unchanged.
 Secret filenames may contain letters, digits, underscores, dots, and hyphens,
 and must start with a letter, digit, or underscore. Omitted secret files are
 retained; remove or revoke credentials explicitly.
@@ -190,6 +260,6 @@ There is no separate binary version override.
 Command line
 ------------
 
-- ``hrcd -config PATH`` starts the controller using the specified JSON file.
+- ``hrcd -config PATH`` starts the controller using the specified config file.
 - ``hrcd -version`` prints the build version.
 - ``hrcd -help`` shows the available flags.

@@ -15,7 +15,8 @@ WorkingDirectory=@STATE@
 ExecStart=@COMMAND@
 Restart=on-failure
 RestartSec=10
-KillMode=control-group
+# Let the daemon coordinate graceful shutdown; kill the whole cgroup on timeout.
+KillMode=mixed
 TimeoutStopSec=60
 UMask=0077
 

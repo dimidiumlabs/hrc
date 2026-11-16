@@ -11,8 +11,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"dimidiumlabs.io/hrc/internal/slot"
 )
 
 func TestPGroupEnvironment(t *testing.T) {
@@ -115,14 +113,14 @@ func TestPGroupClose(t *testing.T) {
 	if _, err := p.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := g.Start(slot.Command{}); !errors.Is(err, os.ErrClosed) {
+	if _, err := g.Start(t.Context(), Command{}); !errors.Is(err, os.ErrClosed) {
 		t.Fatalf("Start after Close = %v", err)
 	}
-	if _, err := (*pgroup)(nil).Start(slot.Command{}); err == nil {
+	if _, err := (*pgroup)(nil).Start(t.Context(), Command{}); err == nil {
 		t.Fatal("started a process without a group")
 	}
 	var zero pgroup
-	if _, err := zero.Start(slot.Command{}); err == nil {
+	if _, err := zero.Start(t.Context(), Command{}); err == nil {
 		t.Fatal("started a process in an uninitialized group")
 	}
 	if err := zero.Close(); err == nil {

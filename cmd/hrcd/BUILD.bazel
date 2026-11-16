@@ -2,10 +2,13 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
-load("//tools:platforms.bzl", "ARCH", "OS")
-load("//tools/rules_service:service.bzl", "service")
 
 exports_files(["BUILD.bazel"])
+
+exports_files(
+    ["pkg/hrc.json"],
+    visibility = ["//cmd:__pkg__"],
+)
 
 go_library(
     name = "hrcd_lib",
@@ -16,13 +19,14 @@ go_library(
     importpath = "dimidiumlabs.io/hrc/cmd/hrcd",
     visibility = ["//:__pkg__"],  # keep
     deps = [
-        "//internal/controller",
+        "//internal/config",
+        "//internal/provider",
         "//internal/provider-github",
-        "//internal/scheduler",
+        "//internal/runtime",
+        "//internal/scheduler-ipc",
         "//internal/slot-pgroup",
         "//internal/space",
         "//internal/space-host",
-        "@com_github_actions_scaleset//:scaleset",
     ],
 )
 
@@ -35,7 +39,6 @@ go_binary(
     ],  # keep
     pure = "on",
     visibility = ["//visibility:public"],
-    x_defs = {"dimidiumlabs.io/hrc/cmd/hrcd.Version": "{STABLE_HRC_VERSION}"},
 )
 
 go_test(
@@ -43,26 +46,10 @@ go_test(
     size = "small",
     srcs = glob(["*_test.go"]),  # keep
     embed = [":hrcd_lib"],
-)
-
-service(
-    name = "release",
-    service = "hrc",
-    description = "Hosted Runner Controller",
     deps = [
-        "//:docs_sources",
-        "//:licenses",
-        "//internal/provider-github/worker:runner",
+        "//internal/config",
+        "//internal/provider",
+        "//internal/slot",
+        "//internal/space",
     ],
-    os = OS,
-    arch = ARCH,
-    bin = ":hrcd",
-    executable = "hrcd",
-    args = [
-        "-config",
-        "{config}",
-    ],
-    config = "pkg/hrc.json",
-    tags = ["manual"],
-    visibility = ["//visibility:public"],
 )

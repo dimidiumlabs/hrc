@@ -14,6 +14,7 @@ type Config struct {
 	ID                 uint64
 	Name               string
 	Version            string
+	OS, Architecture   string // Execution platform; defaults to the current host.
 	OwnerName          string // Defaults to hostname and PID.
 	DisableUpdate      bool
 	SkipSessionRecover bool

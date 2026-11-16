@@ -5,47 +5,132 @@ package main
 
 import (
 	"context"
+	"encoding/json/v2"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
-	"sync"
-	"sync/atomic"
 	"syscall"
 
-	"dimidiumlabs.io/hrc/internal/controller"
+	hrcconfig "dimidiumlabs.io/hrc/internal/config"
+	"dimidiumlabs.io/hrc/internal/provider"
 	github "dimidiumlabs.io/hrc/internal/provider-github"
-	"dimidiumlabs.io/hrc/internal/scheduler"
+	ipc "dimidiumlabs.io/hrc/internal/scheduler-ipc"
 	slotpgroup "dimidiumlabs.io/hrc/internal/slot-pgroup"
 	"dimidiumlabs.io/hrc/internal/space"
 	spacehost "dimidiumlabs.io/hrc/internal/space-host"
-
-	"github.com/actions/scaleset"
 )
 
-// Version holds the build version injected by the linker
-// -ldflags="-X main.Version=0.0.0"
-var Version = "0.0.0-dev.0+unknown"
+type ForgeConfig struct {
+	hrcconfig.Sum[hrcconfig.Provider, struct {
+		GitHub *github.ForgeConfig `variant:"github"`
+	}]
+}
+
+func (c ForgeConfig) NewQueue(id, version string) (provider.Queue, error) {
+	switch spec := c.Value().(type) {
+	case *github.ForgeConfig:
+		return spec.NewQueue(id, version)
+	default:
+		return nil, provider.ErrInvalidConfig
+	}
+}
+
+type SlotConfig struct {
+	hrcconfig.Sum[hrcconfig.Slot, struct {
+		Pgroup *slotpgroup.Config `variant:"pgroup"`
+	}]
+}
+
+func (c SlotConfig) executionConfig(root string) ([]byte, error) {
+	switch spec := c.Value().(type) {
+	case *slotpgroup.Config:
+		config := *spec
+		if config.Dir == "" {
+			config.Dir = filepath.Join(root, "slots")
+		}
+		var err error
+		config.Dir, err = filepath.Abs(config.Dir)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(config)
+	default:
+		return nil, errors.New("unsupported slot configuration")
+	}
+}
+
+type SpaceConfig struct {
+	hrcconfig.Sum[hrcconfig.Space, struct {
+		Host *spacehost.Config `variant:"host"`
+	}]
+}
+
+func (c SpaceConfig) NewSpace(dirs Directories, pool SlotConfig, capacity int, providers map[string][]byte) (space.Space, error) {
+	switch spec := c.Value().(type) {
+	case *spacehost.Config:
+		root := spec.Dir
+		if root == "" {
+			root = filepath.Join(dirs.Spaces, string(spec.ID))
+		}
+		root, err := filepath.Abs(root)
+		if err != nil {
+			return nil, err
+		}
+		slotConfig, err := pool.executionConfig(root)
+		if err != nil {
+			return nil, err
+		}
+		data, err := json.Marshal(ipc.Config{
+			Capacity:   capacity,
+			Ephemeral:  pool.Base().Ephemeral,
+			Slot:       pool.Base().Type,
+			SlotConfig: slotConfig,
+			Providers:  providers,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return spacehost.New(string(spec.ID), root, []string{"hrcs"}, data)
+	default:
+		return nil, space.ErrInvalidConfig
+	}
+}
+
+// executionConfigs supplies opaque provider settings to the execution process.
+func executionConfigs(dirs Directories) (map[string][]byte, error) {
+	runtimeDir, err := filepath.Abs(dirs.Runtime)
+	if err != nil {
+		return nil, err
+	}
+	logRoot, err := filepath.Abs(dirs.Logs)
+	if err != nil {
+		return nil, err
+	}
+	data, err := json.Marshal(github.WorkerConfig{Dir: runtimeDir, LogRoot: logRoot})
+	if err != nil {
+		return nil, err
+	}
+	return map[string][]byte{"github": data}, nil
+}
 
 var (
 	help    = flag.Bool("help", false, "Show this help")
 	version = flag.Bool("version", false, "Show hrcd version")
-	config  = flag.String("config", "", "Path to the json config file")
+	config  = flag.String("config", "", "Path to the JSON or YAML config file")
 )
 
 func main() {
 	flag.Parse()
-
 	if *help {
 		flag.Usage()
 		return
 	}
-
 	if *version {
-		fmt.Println(Version)
+		fmt.Println(hrcconfig.Version)
 		return
 	}
 
@@ -60,11 +145,34 @@ func main() {
 		os.Exit(1)
 	}
 
-	host, err := newHostScheduler(cfg.DirBuilds, cfg.Reserve, cfg.Quota)
-	if err != nil {
-		slog.Error("Couldn't create scheduler", "err", err)
+	if err := runDaemon(cfg); err != nil {
+		slog.Error("Daemon stopped", "err", err)
 		os.Exit(1)
 	}
+}
+
+func runDaemon(cfg *Config) (err error) {
+	demands := make(Demands, len(cfg.Spaces))
+	if err := demands.Init(cfg); err != nil {
+		return fmt.Errorf("calculate space capacities: %w", err)
+	}
+	defer demands.Close()
+
+	providers, err := executionConfigs(cfg.Directories)
+	if err != nil {
+		return err
+	}
+	visor, err := NewSpaceVisor(cfg, demands, providers)
+	if err != nil {
+		return fmt.Errorf("create spacevisor: %w", err)
+	}
+	defer func() { err = errors.Join(err, visor.Close()) }()
+
+	controller, err := NewController(cfg, demands)
+	if err != nil {
+		return fmt.Errorf("create controller: %w", err)
+	}
+	defer func() { err = errors.Join(err, controller.Close()) }()
 
 	// Service managers stop with SIGTERM; Windows delivers console close and
 	// shutdown events as SIGTERM as well.
@@ -73,76 +181,29 @@ func main() {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// A group fails only on local errors that a retry cannot fix. Stop the other
-	// groups and exit non-zero, so the service manager restarts the controller.
-	var failed atomic.Bool
-	var wg sync.WaitGroup
-	for _, group := range cfg.Groups {
-		wg.Go(func() {
-			if err := run(ctx, cfg, &group, host); err != nil {
-				slog.Error("Group controller failed", "group", group.Name, "err", err)
-				failed.Store(true)
-				cancel()
-			}
-		})
-	}
-	wg.Wait()
-	if err := host.Close(); err != nil {
-		slog.Error("Close scheduler", "err", err)
-		failed.Store(true)
-	}
-	if failed.Load() {
-		os.Exit(1)
-	}
-}
+	jobs := controller.Serve(ctx)
 
-func newHostScheduler(root string, reserve, quota Resources) (*scheduler.Scheduler, error) {
-	environment, err := spacehost.New(root, slotpgroup.New)
-	if err != nil {
-		return nil, err
+dispatch:
+	for {
+		select {
+		case job, ok := <-jobs:
+			if !ok {
+				break dispatch
+			}
+			visor.Submit(ctx, job)
+		case <-visor.Failed():
+			break dispatch
+		case <-ctx.Done():
+			break dispatch
+		}
 	}
-	return scheduler.New(environment,
-		space.Resources{CPU: reserve.CPU, Memory: uint64(reserve.Memory)},
-		space.Resources{CPU: quota.CPU, Memory: uint64(quota.Memory)},
-	)
-}
 
-// Concrete providers and execution backends are composed in the command.
-func run(ctx context.Context, cfg *Config, group *Group, host *scheduler.Scheduler) error {
-	execution := github.WorkerConfig{Path: cfg.PathWorker, Dir: cfg.DirRunner}
-	if err := execution.Validate(); err != nil {
-		return fmt.Errorf("validate runner installation: %w", err)
+	// Stop acquisition, request graceful shutdown for every current task,
+	// and wait for execution and Handle cleanup before closing the spaces.
+	cancel()
+	for _, job := range controller.Jobs() {
+		job.Shutdown()
 	}
-	version, err := os.ReadFile(filepath.Join(cfg.DirRunner, "VERSION"))
-	if err != nil {
-		return fmt.Errorf("read runner version: %w", err)
-	}
-	queue, err := github.New(github.Config{
-		ID: cfg.Id, Name: group.Name, Group: group.Group, Labels: group.Labels,
-		Version: Version, RunnerVersion: strings.TrimSpace(string(version)),
-		Worker: execution, LogRoot: cfg.DirLogs,
-		NewClient: func() (*scaleset.Client, error) {
-			info := scaleset.SystemInfo{System: "hrc", Version: Version}
-			if group.GitHubApp.Validate() == nil {
-				auth, err := group.GitHubApp.auth()
-				if err != nil {
-					return nil, err
-				}
-				return scaleset.NewClientWithGitHubApp(scaleset.ClientWithGitHubAppConfig{
-					GitHubConfigURL: group.Url, GitHubAppAuth: auth, SystemInfo: info,
-				})
-			}
-			token, err := group.Token.Take()
-			if err != nil {
-				return nil, fmt.Errorf("read token: %w", err)
-			}
-			return scaleset.NewClientWithPersonalAccessToken(scaleset.NewClientWithPersonalAccessTokenConfig{
-				GitHubConfigURL: group.Url, PersonalAccessToken: token, SystemInfo: info,
-			})
-		},
-	})
-	if err != nil {
-		return err
-	}
-	return controller.Serve(ctx, queue, host, controller.Options{Name: group.Name, ReuseSlots: group.ReuseDirs})
+
+	return nil
 }

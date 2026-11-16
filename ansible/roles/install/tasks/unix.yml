@@ -80,7 +80,7 @@
         set -eu
         install -d -m 0755 /usr/local/bin /usr/local/lib
         rm -rf /usr/local/lib/hrc
-        install -m 0755 hrcd hrcw-github /usr/local/bin/
+        install -m 0755 hrcd hrcs hrcw-github /usr/local/bin/
         cp -R runner /usr/local/lib/hrc
         chown -R root:{{ 'wheel' if _hrc_os == 'darwin' else 'root' }} /usr/local/lib/hrc
         chmod -R u=rwX,go=rX /usr/local/lib/hrc
@@ -120,7 +120,7 @@
 
     - name: Write configuration
       ansible.builtin.copy:
-        content: "{{ _hrc_config_defaults | combine(hrc_config) | to_nice_json }}\n"
+        content: "{{ _hrc_config_defaults | combine(hrc_config, recursive=true) | to_nice_json }}\n"
         dest: "{{ _hrc_path.config }}/hrc.json"
         owner: root
         group: hrc

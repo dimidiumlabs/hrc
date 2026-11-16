@@ -15,7 +15,7 @@ Choose fresh workspaces or keep files and build processes warm between jobs.
 - **Warm builds.** Reusable slots retain both workspace files and child
   processes, such as a Bazel server. Use ephemeral slots for jobs that need
   cleanup after each run; both policies can coexist on one host.
-- **Host capacity.** Set a per-runner CPU and memory quota and a host reserve;
+- **Host capacity.** Set a space resource budget and a per-slot CPU and memory quota;
   hrc calculates how many runners fit. These settings control concurrency,
   not the resources an individual job can consume.
 - **Independent hosts.** No hrc cluster, shared database, or host-to-host
@@ -40,12 +40,21 @@ These Ansible role variables describe a Linux host with reusable build slots:
 .. code-block:: yaml
 
    hrc_config:
-     id: build-01
-     quota: { cpu: 2, memory: 4GiB }
-     groups:
-       - url: https://github.com/your-org/your-repo
-         name: builds
-         reuseDirs: true
+     instanceId: build-01
+     spaces:
+       - id: build
+         type: host
+     slots:
+       - id: workers
+         space: build
+         type: pgroup
+         quota: { cpu: 2, memory: 4GiB }
+         ephemeral: false
+     forges:
+       - id: builds
+         slot: workers
+         type: github
+         url: https://github.com/your-org/your-repo
          pat: { type: file, value: /etc/hrc/secrets/github-token }
    hrc_secrets:
      github-token: "{{ vault_github_token }}"
@@ -64,8 +73,8 @@ This is a configuration and workflow excerpt, not a complete installation.
 The role writes ``hrc_secrets`` to files on the host; ``pat`` points to that same
 token file. Supply your repository URL and credentials, and choose quotas for
 your host.
-With no explicit ``labels``, the scale set name is the routing label. Omit
-``reuseDirs`` or set it to ``false`` to clean up slots after each runner.
+With no explicit ``labels``, the scale set name is the routing label. Set
+``ephemeral`` in the slot pool to ``true`` to clean up slots after each runner.
 
 On this page
 ------------
@@ -120,10 +129,10 @@ its workspace and child processes:
   runner finishes. Use them for lint checks, hermetic builds, and other jobs
   that do not need a warm workspace.
 - **Reusable slots** keep files and processes between jobs in the same
-  configured group. Large incremental builds can reuse their build output and
+  space. Large incremental builds can reuse their build output and
   a running build server instead of starting cold each time.
 
-Set ``reuseDirs`` per group to use both policies on one controller. Installed
+Set ``ephemeral`` per slot pool to use both policies on one controller. Installed
 tools and host-level caches outside slot directories remain available with
 either policy. Resource accounting limits busy slots; it is not a hard CPU or
 memory limit on job processes, and idle reusable slots can retain processes.

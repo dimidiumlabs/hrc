@@ -25,37 +25,40 @@ import (
 )
 
 type Config struct {
-	ID, Name, Group    string
-	Labels             []string
-	Version            string
-	RunnerVersion      string
-	NewClient          func() (*scaleset.Client, error)
-	Worker             WorkerConfig
-	LogRoot            string
-	RetryMin, RetryMax time.Duration
+	ID, Name, Group              string
+	Labels                       []string
+	Version                      string
+	RunnerVersion                string
+	RunnerOS, RunnerArchitecture string
+	NewClient                    func() (*scaleset.Client, error)
+	RetryMin, RetryMax           time.Duration
 }
 
-// WorkerConfig describes the local Worker installation used for execution.
-// Acquiring jobs does not require this installation.
+// WorkerConfig describes the installation in a slot, independently of Queue.
 type WorkerConfig struct {
-	Path, Dir      string
-	Env            []string
-	Stdout, Stderr io.Writer
+	Path, Dir, LogRoot string
+	Env                []string
+	Stdout, Stderr     io.Writer `json:"-"`
 }
 
-// Validate checks the installation without acquiring a job or creating a slot.
+// Validate checks execution settings without accessing the target installation.
 func (c WorkerConfig) Validate() error {
+	if c.Path == "" {
+		c.Path = "hrcw-github"
+	}
 	_, err := worker.New(worker.Config{Path: c.Path, Dir: c.Dir, Env: c.Env})
-	return err
+	if err != nil {
+		return errors.Join(provider.ErrInvalidConfig, err)
+	}
+	return nil
 }
 
 type Queue struct{ config Config }
 
-// New needs protocol metadata, not an installed Worker. Worker configuration is
-// used only when a delivered Job is run.
+// New needs protocol metadata, not an installed Worker.
 func New(config Config) (*Queue, error) {
 	if config.NewClient == nil || config.RunnerVersion == "" {
-		return nil, errors.New("GitHub client factory and runner version are required")
+		return nil, fmt.Errorf("%w: GitHub client factory and runner version are required", provider.ErrInvalidConfig)
 	}
 	if config.Group == "" {
 		config.Group = scaleset.DefaultRunnerGroup
@@ -67,13 +70,22 @@ func New(config Config) (*Queue, error) {
 		config.RetryMax = 2 * time.Minute
 	}
 	if config.RetryMin < 0 || config.RetryMax < config.RetryMin {
-		return nil, errors.New("invalid session retry delays")
+		return nil, fmt.Errorf("%w: invalid session retry delays", provider.ErrInvalidConfig)
 	}
 	config.Labels = slices.Clone(config.Labels)
 	return &Queue{config: config}, nil
 }
 
-func (q *Queue) Serve(ctx context.Context, capacity provider.Capacity, handle func(context.Context, provider.Job) error) error {
+func (q *Queue) Serve(ctx context.Context, demand provider.Demand) <-chan provider.Handle {
+	jobs := make(chan provider.Handle)
+	go func() {
+		defer close(jobs)
+		q.run(ctx, demand, jobs)
+	}()
+	return jobs
+}
+
+func (q *Queue) run(ctx context.Context, demand provider.Demand, jobs chan<- provider.Handle) {
 	logger := slog.Default().With("group", q.config.Name)
 	logger.Info("Starting GitHub queue")
 	// Acquired jobs retain their own Broker connections across queue failures.
@@ -83,9 +95,9 @@ func (q *Queue) Serve(ctx context.Context, capacity provider.Capacity, handle fu
 	delay := q.config.RetryMin
 	for {
 		started := time.Now()
-		err := q.serve(ctx, capacity, handle, &runners, &running)
+		err := q.serve(ctx, demand, jobs, &runners, &running)
 		if ctx.Err() != nil {
-			return nil
+			return
 		}
 		if time.Since(started) > q.config.RetryMax {
 			delay = q.config.RetryMin
@@ -95,14 +107,14 @@ func (q *Queue) Serve(ctx context.Context, capacity provider.Capacity, handle fu
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil
+			return
 		case <-timer.C:
 		}
 		delay = min(2*delay, q.config.RetryMax)
 	}
 }
 
-func (q *Queue) serve(ctx context.Context, capacity provider.Capacity, handle func(context.Context, provider.Job) error, runners *sync.WaitGroup, running *atomic.Int32) error {
+func (q *Queue) serve(ctx context.Context, demand provider.Demand, jobs chan<- provider.Handle, runners *sync.WaitGroup, running *atomic.Int32) error {
 	cfg := &q.config
 	logger := slog.Default().With("group", cfg.Name)
 	info := scaleset.SystemInfo{System: "hrc", Version: cfg.Version}
@@ -152,14 +164,27 @@ func (q *Queue) serve(ctx context.Context, capacity provider.Capacity, handle fu
 					break
 				}
 				running.Add(1)
-				reservation := capacity.Reserve()
+				reservation := demand.Reserve()
 				runners.Go(func() {
 					err := reservation.Wait(ctx)
 					if err == nil {
-						var job provider.Job
+						var job *handle
 						job, err = q.acquire(ctx, client, scaleSet.ID)
 						if job != nil {
-							err = handle(ctx, job)
+							job.reservation, job.running = reservation, running
+							select {
+							case jobs <- job:
+								return // Handle.Close now owns the reservation.
+							case <-ctx.Done():
+								cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+								defer cancel()
+								err = job.Finish(cleanup, provider.Canceled, nil)
+								err = errors.Join(err, job.Close(cleanup))
+								if err != nil {
+									logger.Error("Discard undelivered job", "err", err)
+								}
+								return
+							}
 						}
 					}
 					// Leave the group's count before advertising freed capacity.
@@ -176,7 +201,7 @@ func (q *Queue) serve(ctx context.Context, capacity provider.Capacity, handle fu
 		// group's own runners plus the host's free slots. A release restarts
 		// the long poll, so GitHub learns about the freed slot immediately.
 		// An unacknowledged message is delivered again by the next poll.
-		free, released := capacity.State()
+		free, released := demand.State()
 		capacity := min(int(running.Load())+free, math.MaxInt32)
 		poll, cancelPoll := context.WithCancel(ctx)
 		go func() {

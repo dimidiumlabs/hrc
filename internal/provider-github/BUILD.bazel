@@ -1,9 +1,16 @@
 # SPDX-FileCopyrightText: 2026 Nikolay Govorov
 # SPDX-License-Identifier: BSD-3-Clause
 
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 exports_files(["BUILD.bazel"])
+
+copy_file(
+    name = "runner_version",
+    src = "@actions_runner//:runnerversion",
+    out = "runner-version.txt",
+)
 
 go_library(
     name = "provider-github",
@@ -11,13 +18,14 @@ go_library(
         ["*.go"],
         exclude = ["*_test.go"],
     ),
+    embedsrcs = [":runner_version"],
     importpath = "dimidiumlabs.io/hrc/internal/provider-github",
     visibility = ["//visibility:public"],
     deps = [
+        "//internal/config",
         "//internal/provider",
         "//internal/provider-github/listener",
         "//internal/provider-github/worker",
-        "//internal/slot",
         "@com_github_actions_scaleset//:scaleset",
     ],
 )
@@ -28,7 +36,10 @@ go_test(
     srcs = glob(["*_test.go"]),
     embed = [":provider-github"],
     deps = [
+        "//internal/config",
+        "//internal/provider",
         "//internal/provider-github/listener",
+        "//internal/provider-github/worker",
         "@com_github_actions_scaleset//:scaleset",
     ],
 )

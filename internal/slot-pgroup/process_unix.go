@@ -13,14 +13,13 @@ import (
 	"time"
 )
 
-// configure passes Files as descriptors 3 and up, and starts the child in a
-// process group of its own.
+// configure starts the child in a process group of its own.
 func (p *process) configure(files []*os.File) error {
+	p.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	p.cmd.ExtraFiles = files
 	for i := range files {
 		p.cmd.Args = append(p.cmd.Args, strconv.Itoa(3+i))
 	}
-	p.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return nil
 }
 
@@ -51,3 +50,5 @@ func testSendInterrupt() error {
 	defer group.Release()
 	return group.Signal(os.Interrupt)
 }
+
+func (p *process) closeInherited() {}

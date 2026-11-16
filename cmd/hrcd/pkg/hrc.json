@@ -1,13 +1,33 @@
 {
-  "id": "build-01",
-  "pathWorker": "",
-  "dirRunner": "",
-  "dirBuilds": "jobs",
-  "dirLogs": "",
-  "groups": [
+  "instanceId": "build-01",
+  "directories": {
+    "logs": "",
+    "spaces": "",
+    "runtime": ""
+  },
+  "spaces": [
     {
+      "id": "build",
+      "type": "host"
+    }
+  ],
+  "slots": [
+    {
+      "id": "build-slots",
+      "space": "build",
+      "type": "pgroup",
+      "quota": {
+        "cpu": 2,
+        "memory": "4GiB"
+      },
+      "ephemeral": true
+    }
+  ],
+  "forges": [
+    {
+      "id": "hrc-builds",
+      "type": "github",
       "url": "https://github.com/mrdimidium/hrc",
-      "name": "hrc-builds",
       "group": "default",
       "labels": [
         "linux",
@@ -16,7 +36,8 @@
       "pat": {
         "type": "env",
         "value": "GITHUB_TOKEN"
-      }
+      },
+      "slot": "build-slots"
     }
   ]
 }

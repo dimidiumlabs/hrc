@@ -78,16 +78,15 @@ jobs and cleans up their workspaces; it does not wait for jobs to finish.
 Workspaces and cleanup
 ----------------------
 
-Each runner slot owns a workspace and a process group. By default, both are
-cleaned up after the runner finishes. With ``reuseDirs: true`` in a configured
-group, workspaces and their remaining build processes can be reused across
+Each runner slot owns a workspace and a process group. With ``ephemeral: true``, both are
+cleaned up after the runner finishes. Otherwise, workspaces and their remaining build processes can be reused across
 jobs during one controller run. Each job still gets a new ephemeral runner
 registration. Installed tools and caches outside the slot directories remain
 on the host independently of this setting.
 
 Graceful controller shutdown expires all slots, including idle reusable ones:
 remaining slot processes are killed and slot directories are deleted. Job
-diagnostics are stored separately under ``<dirLogs>/jobs/`` and are not removed
+diagnostics are stored separately under ``<directories.logs>/jobs/`` and are not removed
 with the workspaces. Log retention is managed by the administrator.
 
 On all three platforms, process cleanup uses the inherited
@@ -127,6 +126,6 @@ Controller output:
    - ``/var/log/hrc/stdout.log``
    - ``/var/log/hrc/stderr.log``
 
-Job logs are stored under ``<dirLogs>/jobs/`` as configured in ``hrc.json``.
+Job logs are stored under ``<directories.logs>/jobs/`` as configured in ``hrc.json``.
 Retain logs from a failed job before removing them; deleting a workspace does
 not delete its diagnostic logs.

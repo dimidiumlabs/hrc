@@ -24,7 +24,7 @@ filegroup(
         ["docs/**/*.rst"],
         exclude = ["docs/draft/**"],
     ),
-    visibility = ["//cmd/hrcd:__pkg__"],
+    visibility = ["//cmd:__pkg__"],
 )
 
 alias(
@@ -48,7 +48,7 @@ docs_archive(
 filegroup(
     name = "licenses",
     srcs = ["LICENSE"] + glob(["LICENSES/*"]),
-    visibility = ["//cmd/hrcd:__pkg__"],
+    visibility = ["//cmd:__pkg__"],
 )
 
 # Inputs staged by CI's release matrix, not rebuilt across operating systems.
@@ -77,14 +77,18 @@ test_suite(
     tests = [
         "//ansible:collection_test",
         "//cmd/hrcd:hrcd_test",
-        "//internal/controller:controller_test",
+        "//cmd/hrcs:hrcs_test",
+        "//internal/config:config_test",
         "//internal/provider-github:provider-github_test",
         "//internal/provider-github/listener:listener_test",
         "//internal/provider-github/worker:runtime_config_test",
         "//internal/provider-github/worker:worker_test",
+        "//internal/provider-github/worker:worker_unit_test",
         "//internal/runtime:runtime_test",
-        "//internal/scheduler:scheduler_test",
+        "//internal/scheduler-ipc:scheduler-ipc_test",
         "//internal/slot-pgroup:slot-pgroup_test",
+        "//internal/space:space_test",
+        "//internal/space-host:space-host_test",
         "//tools:requirements.test",
         "//tools:site_test",
         "//tools/rules_ansible:collection_test",
@@ -100,14 +104,16 @@ filegroup(
         "MODULE.bazel",
     ] + [
         "//ansible:starlark_sources",
+        "//cmd:BUILD.bazel",
         "//cmd/hrcd:BUILD.bazel",
-        "//internal/controller:BUILD.bazel",
+        "//cmd/hrcs:BUILD.bazel",
+        "//internal/config:BUILD.bazel",
         "//internal/provider:BUILD.bazel",
         "//internal/provider-github:BUILD.bazel",
         "//internal/provider-github/listener:BUILD.bazel",
         "//internal/provider-github/worker:starlark_sources",
         "//internal/runtime:BUILD.bazel",
-        "//internal/scheduler:BUILD.bazel",
+        "//internal/scheduler-ipc:BUILD.bazel",
         "//internal/slot:BUILD.bazel",
         "//internal/slot-pgroup:BUILD.bazel",
         "//internal/space:BUILD.bazel",
@@ -133,5 +139,11 @@ alias(
 alias(
     name = "hrcd",
     actual = "//cmd/hrcd:hrcd",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "hrcs",
+    actual = "//cmd/hrcs:hrcs",
     visibility = ["//visibility:public"],
 )

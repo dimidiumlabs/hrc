@@ -15,15 +15,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"sync"
 	"time"
 	"unicode/utf16"
-
-	platformruntime "dimidiumlabs.io/hrc/internal/runtime"
-	"dimidiumlabs.io/hrc/internal/slot"
 )
 
 // Result uses the upstream TaskResult values. Unknown means the process never
@@ -98,24 +92,23 @@ type Worker struct {
 	closed         bool
 
 	startCancel context.CancelFunc
-	process     slot.Process
+	process     Process
 	done        chan struct{}
 	result      Result
 	err         error
 	waitErr     error
 	cleanupErr  error
 
-	input  *os.File
-	pipes  []*os.File
+	input  io.WriteCloser
 	writes chan struct{}
 
 	pipeErr, killErr, closeErr    error
 	pipeOnce, killOnce, closeOnce sync.Once
 }
 
-// New validates the local configuration and copies its values. It creates no
+// New validates the configuration and copies its values. It creates no
 // files or processes. Slot is required only for StartJob, allowing New to
-// validate an installation before any slot exists. Runtime settings are passed
+// describe execution before any slot exists. Runtime settings are passed
 // in RUNNER_CONFIG by StartJob.
 func New(config Config) (*Worker, error) {
 	if err := config.validate(); err != nil {
@@ -137,7 +130,7 @@ func New(config Config) (*Worker, error) {
 // Initial transmission is also bounded by .NET's 30-second startup timeout.
 // Once startup begins, failures consume this Worker and release its resources.
 // diagDir selects the diagnostic directory for this job. An empty path uses
-// workspace's _diag directory; relative paths use the caller's cwd.
+// workspace's _diag directory. All paths are interpreted inside the slot.
 func (w *Worker) StartJob(ctx context.Context, payload json.RawMessage, diagDir string) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -145,7 +138,7 @@ func (w *Worker) StartJob(ctx context.Context, payload json.RawMessage, diagDir 
 	if body := bytes.TrimSpace(payload); len(body) == 0 || body[0] != '{' || !json.Valid(body) {
 		return errors.New("Worker job must be a JSON object")
 	}
-	if w.config.Slot == nil {
+	if w.config.Environment == nil {
 		return errors.New("Worker slot is required")
 	}
 	w.mu.Lock()
@@ -174,14 +167,7 @@ func (w *Worker) StartJob(ctx context.Context, payload json.RawMessage, diagDir 
 		}
 	}()
 	if diagDir == "" {
-		diagDir = filepath.Join(w.config.WorkDir, "_diag")
-	}
-	diagDir, err = filepath.Abs(diagDir)
-	if err != nil {
-		return fmt.Errorf("resolve Worker diagnostics: %w", err)
-	}
-	if err := os.MkdirAll(w.config.WorkDir, 0700); err != nil {
-		return fmt.Errorf("create Worker workspace: %w", err)
+		diagDir = w.config.Environment.Path(w.config.WorkDir, "_diag")
 	}
 	settings, err := w.config.renderRunner()
 	if err != nil {
@@ -190,17 +176,13 @@ func (w *Worker) StartJob(ctx context.Context, payload json.RawMessage, diagDir 
 	overrides := append([]string{}, w.config.Env...)
 	overrides = append(overrides,
 		"RUNNER_CONFIG="+string(settings), "RUNNER_DIAG="+diagDir,
-		"RUNNER_SCRIPTS="+filepath.Join(w.config.Dir, "scripts"),
-		"RUNNER_EXTERNALS="+filepath.Join(w.config.Dir, "externals"),
+		"RUNNER_SCRIPTS="+w.config.Environment.Path(w.config.Dir, "scripts"),
+		"RUNNER_EXTERNALS="+w.config.Environment.Path(w.config.Dir, "externals"),
 	)
-	env, err := environment(w.config.Dir, overrides)
-	if err != nil {
-		return fmt.Errorf("prepare Worker environment: %w", err)
-	}
 	if err = start.Err(); err != nil {
 		return err
 	}
-	if err = w.startProcess(env); err != nil {
+	if err = w.startProcess(start, overrides); err != nil {
 		return fmt.Errorf("start Worker: %w", err)
 	}
 	processStarted = true
@@ -227,29 +209,16 @@ func (w *Worker) StartJob(ctx context.Context, payload json.RawMessage, diagDir 
 	return nil
 }
 
-func (w *Worker) startProcess(env []string) error {
-	read, write, err := platformruntime.Pipe()
-	if err != nil {
-		return err
+func (w *Worker) startProcess(ctx context.Context, env []string) (err error) {
+	w.process, w.input, err = w.config.Environment.StartWorker(ctx, w.config, env)
+	if err == nil && (w.process == nil || w.input == nil) {
+		if w.process != nil {
+			w.process.Kill()
+			w.process.Wait()
+		}
+		return errors.New("slot did not provide Worker process and input")
 	}
-	w.pipes = append(w.pipes, read, write)
-	backRead, backWrite, err := platformruntime.Pipe()
-	if err != nil {
-		return err
-	}
-	w.pipes = append(w.pipes, backRead, backWrite)
-	w.input = write
-	w.process, err = w.config.Slot.Start(slot.Command{
-		Path: w.config.Path, Dir: w.config.WorkDir, Args: []string{"spawnclient"},
-		Env: env, Stdout: w.config.Stdout, Stderr: w.config.Stderr,
-		Files: []*os.File{read, backWrite},
-	})
-	if err != nil {
-		return err
-	}
-	read.Close()
-	backWrite.Close()
-	return nil
+	return err
 }
 
 // CancelJob sends ordinary job cancellation. It does not wait for completion;
@@ -353,49 +322,6 @@ func (w *Worker) finish(result Result, err error) error {
 	return w.err
 }
 
-func binaryName() string {
-	if runtime.GOOS == "windows" {
-		return "hrcw-github.exe"
-	}
-	return "hrcw-github"
-}
-
-func environment(dir string, overrides []string) ([]string, error) {
-	env := make(map[string]string)
-	key := func(k string) string {
-		if runtime.GOOS == "windows" {
-			return strings.ToUpper(k)
-		}
-		return k
-	}
-	put := func(entry string) {
-		if k, _, ok := strings.Cut(entry, "="); ok && k != "" {
-			env[key(k)] = entry
-		}
-	}
-	for _, entry := range os.Environ() {
-		put(entry)
-	}
-	data, err := os.ReadFile(filepath.Join(dir, ".env"))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-	for _, entry := range strings.Split(string(data), "\n") {
-		put(strings.TrimSuffix(entry, "\r"))
-	}
-	if err := validateEnv(overrides); err != nil {
-		return nil, err
-	}
-	for _, entry := range overrides {
-		put(entry)
-	}
-	result := make([]string, 0, len(env))
-	for _, entry := range env {
-		result = append(result, entry)
-	}
-	return result, nil
-}
-
 // writeMessage serializes complete frames. Interrupting a write closes the pipe:
 // a partially transmitted frame cannot safely be resumed.
 func (w *Worker) writeMessage(ctx context.Context, kind messageType, body []byte) error {
@@ -449,8 +375,8 @@ func writeFrame(dst io.Writer, kind messageType, body []byte) error {
 
 func (w *Worker) closePipes() {
 	w.pipeOnce.Do(func() {
-		for _, f := range w.pipes {
-			if err := f.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+		if w.input != nil {
+			if err := w.input.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
 				w.pipeErr = errors.Join(w.pipeErr, err)
 			}
 		}

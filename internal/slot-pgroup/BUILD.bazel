@@ -14,10 +14,16 @@ go_library(
     importpath = "dimidiumlabs.io/hrc/internal/slot-pgroup",
     visibility = ["//visibility:public"],
     deps = [
+        "//internal/config",
+        "//internal/provider",
+        "//internal/provider-github",
+        "//internal/provider-github/worker",
         "//internal/runtime",
         "//internal/slot",
     ] + select({
-        "@platforms//os:windows": ["@org_golang_x_sys//windows"],
+        "@rules_go//go/platform:windows": [
+            "@org_golang_x_sys//windows",
+        ],
         "//conditions:default": [],
     }),
 )
@@ -28,6 +34,8 @@ go_test(
     srcs = glob(["*_test.go"]),
     embed = [":slot-pgroup"],
     deps = [
+        "//internal/provider",
+        "//internal/provider-github/worker",
         "//internal/runtime",
         "//internal/slot",
     ],

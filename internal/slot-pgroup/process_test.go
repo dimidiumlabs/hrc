@@ -5,6 +5,7 @@ package slotpgroup
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,12 +19,31 @@ import (
 	"time"
 
 	platformruntime "dimidiumlabs.io/hrc/internal/runtime"
-	"dimidiumlabs.io/hrc/internal/slot"
 )
 
 const childArg = "hrc-process-child"
 
 func TestMain(m *testing.M) {
+	if len(os.Args) == 4 && os.Args[1] == "spawnclient" {
+		handle, err := strconv.ParseUint(os.Args[2], 10, 64)
+		if err != nil {
+			os.Exit(51)
+		}
+		input := os.NewFile(uintptr(handle), "worker-input")
+		data, err := io.ReadAll(input)
+		if err != nil {
+			os.Exit(52)
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			os.Exit(53)
+		}
+		json.NewEncoder(os.Stdout).Encode(map[string]string{
+			"input": string(data), "cwd": cwd, "layer": os.Getenv("HRC_LAUNCH_LAYER"),
+			"dotenv": os.Getenv("HRC_LAUNCH_DOTENV"), "tracking": os.Getenv(trackingGroupEnv),
+		})
+		os.Exit(0)
+	}
 	runDescendant()
 	if len(os.Args) >= 3 && os.Args[1] == childArg {
 		os.Exit(testChild(os.Args[2], os.Args[3:]))
@@ -35,16 +55,16 @@ func TestMain(m *testing.M) {
 // go-ahead on its first inherited file, so that it does nothing before joining
 // its tree, and can report back on the second.
 func testChild(mode string, names []string) int {
-	if len(names) != 2 {
-		return 40
-	}
-	var files [2]*os.File
-	for i, name := range names {
-		handle, err := strconv.ParseUint(name, 10, 64)
-		if err != nil {
-			return 41
+	files := [2]*os.File{os.Stdin, os.Stdout}
+	if len(names) == 2 {
+		for i, name := range names {
+			handle, err := strconv.ParseUint(name, 10, 64)
+			if err != nil {
+				return 41
+			}
+			files[i] = os.NewFile(uintptr(handle), name)
+			defer files[i].Close()
 		}
-		files[i] = os.NewFile(uintptr(handle), "inherited")
 	}
 	var start [1]byte
 	if _, err := io.ReadFull(files[0], start[:]); err != nil {
@@ -92,18 +112,14 @@ func newTestPGroup(t *testing.T) *pgroup {
 
 // startChild starts this test binary in mode, returning its go-ahead and report
 // files. The process belongs to a group closed when the test ends.
-func startChild(t *testing.T, mode string, env ...string) (*process, *os.File, *os.File, *bytes.Buffer) {
+func startChild(t *testing.T, mode string, env ...string) (*process, io.WriteCloser, *os.File, *bytes.Buffer) {
 	t.Helper()
 	return startGroupChild(t, newTestPGroup(t), mode, env...)
 }
 
-func startGroupChild(t *testing.T, g *pgroup, mode string, env ...string) (*process, *os.File, *os.File, *bytes.Buffer) {
+func startGroupChild(t *testing.T, g *pgroup, mode string, env ...string) (*process, io.WriteCloser, *os.File, *bytes.Buffer) {
 	t.Helper()
 	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	startRead, start, err := platformruntime.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,16 +128,16 @@ func startGroupChild(t *testing.T, g *pgroup, mode string, env ...string) (*proc
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	p, err := g.Start(slot.Command{
+	p, err := g.Start(t.Context(), Command{
 		Path: self, Dir: t.TempDir(), Args: []string{childArg, mode},
-		Env: append(os.Environ(), env...), Stdout: &output, Stderr: &output,
-		Files: []*os.File{startRead, reportWrite},
+		Env: append(os.Environ(), env...), Stdout: reportWrite, Stderr: &output,
+		Input: true,
 	})
-	startRead.Close()
 	reportWrite.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
+	start := p.Stdin()
 	t.Cleanup(func() {
 		p.Kill()
 		p.Wait()
@@ -333,5 +349,34 @@ func TestInterruptStaysInTree(t *testing.T) {
 	case <-interrupts:
 		t.Fatal("the child's interrupt reached the caller")
 	case <-time.After(time.Second):
+	}
+}
+
+// Exercise both extra pipe directions independently of the GitHub protocol.
+// EOF after Wait also checks that no copy of a child's writer remains open.
+func TestInheritedPipes(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := newTestPGroup(t).Start(t.Context(), Command{
+		Path: self, Args: []string{childArg, "report"},
+		Pipes: []PipeDirection{PipeRead, PipeWrite},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { p.Close() })
+	pipes := p.Pipes()
+	if _, err := pipes[0].Write([]byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	code, err := p.Wait()
+	if err != nil || code != 0 {
+		t.Fatalf("Wait: %d, %v", code, err)
+	}
+	output, err := io.ReadAll(pipes[1])
+	if err != nil || string(output) != "ok" {
+		t.Fatalf("pipe output: %q, %v", output, err)
 	}
 }

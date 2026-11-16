@@ -4,10 +4,10 @@
 package main
 
 import (
-	"errors"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
-	"strconv"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -23,232 +23,116 @@ func checkError(t *testing.T, err error, want string) {
 	}
 }
 
-func TestSecretValidate(t *testing.T) {
-	for _, tt := range []struct {
-		secret Secret
-		want   string
-	}{
-		{Secret{"inline", "token"}, ""},
-		{Secret{"file", "/token"}, ""},
-		{Secret{"env", "TOKEN"}, ""},
-		{Secret{"unknown", "token"}, "secret type"},
-		{Secret{"inline", ""}, "secret value"},
-	} {
-		t.Run(tt.secret.Src+"/"+tt.secret.Value, func(t *testing.T) {
-			checkError(t, tt.secret.Validate(), tt.want)
-		})
-	}
-}
-
-func TestGroupValidate(t *testing.T) {
-	for _, tt := range []struct {
-		name   string
-		change func(*Group)
-		want   string
-	}{
-		{"PAT", func(g *Group) {}, ""},
-		{"app", func(g *Group) {
-			g.Token = Secret{}
-			g.GitHubApp.ClientID = "client"
-			g.GitHubApp.InstallationID = 1
-			g.GitHubApp.PrivateKey = Secret{"inline", "key"}
-		}, ""},
-		{"URL", func(g *Group) { g.Url = "://invalid" }, "invalid registration URL"},
-		{"relative URL", func(g *Group) { g.Url = "/org/repo" }, "invalid registration URL"},
-		{"missing host", func(g *Group) { g.Url = "https:/org/repo" }, "invalid registration URL"},
-		{"unsupported scheme", func(g *Group) { g.Url = "ftp://github.com/org/repo" }, "invalid registration URL"},
-		{"HTTP URL", func(g *Group) { g.Url = "http://github.example/org/repo" }, ""},
-		{"name", func(g *Group) { g.Name = "" }, "name is required"},
-		{"empty label", func(g *Group) { g.Labels = []string{"linux", ""} }, "label at index 1 is empty"},
-		{"blank label", func(g *Group) { g.Labels = []string{" \t"} }, "label at index 0 is empty"},
-		{"credentials", func(g *Group) { g.Token = Secret{} }, "no credentials provided"},
-		{"app without key", func(g *Group) {
-			g.Token = Secret{}
-			g.GitHubApp = GitHubApp{ClientID: "client", InstallationID: 1}
-		}, "no credentials provided"},
-		{"reused directory", func(g *Group) { g.ReuseDirs = true }, ""},
-		{"reused directory path", func(g *Group) { g.ReuseDirs, g.Name = true, "linux/x64" }, "cannot be a directory name"},
-		{"reused directory backslash", func(g *Group) { g.ReuseDirs, g.Name = true, `linux\x64` }, "cannot be a directory name"},
-		{"reused directory parent", func(g *Group) { g.ReuseDirs, g.Name = true, ".." }, "cannot be a directory name"},
-		{"path without reuse", func(g *Group) { g.Name = "linux/x64" }, ""},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			g := Group{Url: "https://github.com/org/repo", Name: "runners", Token: Secret{"inline", "token"}}
-			tt.change(&g)
-			checkError(t, g.Validate(), tt.want)
-			if g.Group != "default" {
-				t.Fatalf("default group = %q, want default", g.Group)
-			}
-		})
-	}
-	t.Run("preserves group and labels", func(t *testing.T) {
-		g := Group{Url: "https://github.com/org", Name: "runners", Group: "custom", Labels: []string{"linux"}, Token: Secret{"env", "TOKEN"}}
-		checkError(t, g.Validate(), "")
-		if g.Group != "custom" || len(g.Labels) != 1 || g.Labels[0] != "linux" {
-			t.Fatalf("unexpected group: %+v", g)
-		}
-	})
-}
+const forgeJSON = `{"url":"https://github.com/org","pat":{"type":"inline","value":"token"}}`
+const poolConfigJSON = `{"instanceId":"host","spaces":[{"id":"build","type":"host","dir":"work"}],"slots":[{"id":"workers","space":"build","type":"pgroup","quota":{"cpu":2,"memory":"8GiB"},"ephemeral":true}],"forges":[{"id":"forge","slot":"workers","type":"github","url":"https://github.com/org","pat":{"type":"inline","value":"token"}}]}`
 
 func TestConfigValidate(t *testing.T) {
 	cfg := Config{}
-	checkError(t, cfg.Validate(), "id is required")
-	cfg.Id = "test-host"
+	checkError(t, cfg.Validate(), "instanceId: id is required")
+	cfg.InstanceID = "host"
 	checkError(t, cfg.Validate(), "")
-	if cfg.PathWorker != "./hrcw-github" || cfg.DirRunner != "./runner" || cfg.DirBuilds != "./hrc/build" || cfg.DirLogs != "./hrc/log" {
-		t.Fatalf("unexpected default directories: %+v", cfg)
+	if cfg.Directories != (Directories{Runtime: "./runner", Spaces: "./hrc/build", Logs: "./hrc/log"}) {
+		t.Fatal("invalid defaults")
 	}
-	cfg.PathWorker, cfg.DirBuilds, cfg.DirRunner, cfg.DirLogs = "/bin/hrcw-github", "/builds", "/runner", "/logs"
-	checkError(t, cfg.Validate(), "")
-	if cfg.PathWorker != "/bin/hrcw-github" || cfg.DirBuilds != "/builds" || cfg.DirRunner != "/runner" || cfg.DirLogs != "/logs" {
-		t.Fatalf("custom directories changed: %+v", cfg)
-	}
-	cfg.Groups = []Group{
-		{Url: "https://github.com/org", Name: "first", Token: Secret{"inline", "token"}},
-		{Url: "https://github.com/org", Name: "second", Group: "custom", Token: Secret{"inline", "token"}},
+	cfg.Directories.Spaces = "/builds"
+	if err := json.Unmarshal([]byte(poolConfigJSON), &cfg); err != nil {
+		t.Fatal(err)
 	}
 	checkError(t, cfg.Validate(), "")
-	if cfg.Groups[0].Group != "default" || cfg.Groups[1].Group != "custom" {
-		t.Fatalf("unexpected runner groups: %q, %q", cfg.Groups[0].Group, cfg.Groups[1].Group)
+	if cfg.Directories.Spaces != "/builds" {
+		t.Fatal("custom directory changed")
 	}
-	cfg.Groups[1].Name = "first"
-	cfg.Groups[1].Url = "https://github.com/other"
-	checkError(t, cfg.Validate(), `group 1 has duplicate name "first": already used by group 0`)
-	cfg.Groups = []Group{{}}
-	checkError(t, cfg.Validate(), "group 0 is invalid: invalid registration URL")
+	// Several forges share one pool and its budget.
+	var second ForgeConfig
+	if err := json.Unmarshal([]byte(`{"id":"second","slot":"workers",`+forgeJSON[1:]), &second); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Forges = append(cfg.Forges, second)
+	checkError(t, cfg.Validate(), "")
+	cfg.Forges[1].Base().ID = "forge"
+	checkError(t, cfg.Validate(), "duplicate forge id")
+	cfg.Forges[1].Base().ID = "second"
+	cfg.Forges[1].Base().Slot = "missing"
+	checkError(t, cfg.Validate(), "unknown slot pool")
+	cfg.Forges[1].Base().Slot = "workers"
+	cfg.Slots[0].Base().Space = "missing"
+	checkError(t, cfg.Validate(), "unknown space")
 }
 
-func TestLoadConfig(t *testing.T) {
-	for _, tt := range []struct {
-		name, content, want string
-	}{
-		{"valid", `{"id":"host","groups":[{"url":"https://github.com/org","name":"runners","pat":{"type":"inline","value":"token"}}]}`, ""},
-		{"missing file", "", "failed to read the config file"},
-		{"invalid JSON", `{`, "failed to parse json"},
-		{"invalid config", `{}`, "invalid configuration: id is required"},
+func TestConfigVariants(t *testing.T) {
+	yaml := `instanceId: host
+spaces:
+  - id: build
+    type: host
+    dir: work
+slots:
+  - id: workers
+    space: build
+    type: pgroup
+    quota: {cpu: 2, memory: 8GiB}
+    ephemeral: true
+forges:
+  - id: forge
+    slot: workers
+    type: github
+    url: https://github.com/org
+    pat: {type: inline, value: token}
+`
+	for _, tt := range []struct{ name, ext, data, want string }{
+		{"json", ".json", poolConfigJSON, ""},
+		{"yaml", ".yaml", yaml, ""},
+		{"unknown forge", ".json", strings.Replace(poolConfigJSON, `"type":"github"`, `"type":"other"`, 1), "unknown configuration type"},
+		{"unknown space", ".json", strings.Replace(poolConfigJSON, `"type":"host"`, `"type":"other"`, 1), "unknown configuration type"},
+		{"unknown slot", ".json", strings.Replace(poolConfigJSON, `"type":"pgroup"`, `"type":"other"`, 1), "unknown configuration type"},
+		{"unknown slot field", ".json", strings.Replace(poolConfigJSON, `"type":"pgroup"`, `"type":"pgroup","image":"x"`, 1), "unknown"},
+		{"unknown forge field", ".json", strings.Replace(poolConfigJSON, `"type":"github"`, `"type":"github","dir":"x"`, 1), "unknown"},
+		{"old nested slot", ".json", strings.Replace(poolConfigJSON, `"type":"host"`, `"type":"host","slot":{}`, 1), "unknown"},
+		{"bad quota", ".json", strings.Replace(poolConfigJSON, `"cpu":2`, `"cpu":-1`, 1), "cpu"},
+		{"bad pool id", ".json", strings.Replace(poolConfigJSON, `"id":"workers"`, `"id":"../bad"`, 1), "id"},
+		{"unknown pool", ".json", strings.Replace(poolConfigJSON, `"slot":"workers"`, `"slot":"missing"`, 1), "unknown slot pool"},
+		{"unknown placement", ".json", strings.Replace(poolConfigJSON, `"space":"build"`, `"space":"missing"`, 1), "unknown space"},
+		{"duplicate space", ".json", strings.Replace(poolConfigJSON, `"spaces":[`, `"spaces":[{"id":"build"},`, 1), "duplicate space"},
+		{"duplicate pool", ".json", strings.Replace(poolConfigJSON, `"slots":[`, `"slots":[{"id":"workers","space":"build"},`, 1), "duplicate slot pool"},
+		{"two pools", ".json", strings.Replace(poolConfigJSON, `"slots":[`, `"slots":[{"id":"other","space":"build"},`, 1), "multiple slot pools"},
+		{"null pool", ".json", strings.Replace(poolConfigJSON, `"slots":[`, `"slots":[null,`, 1), "object"},
+		{"duplicate discriminator", ".json", strings.Replace(poolConfigJSON, `"type":"pgroup"`, `"type":"pgroup","type":"pgroup"`, 1), "duplicate"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "config.json")
-			if tt.content != "" {
-				if err := os.WriteFile(path, []byte(tt.content), 0600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			cfg, err := LoadConfig(path)
-			checkError(t, err, tt.want)
-			if tt.want == "" && (cfg.Id != "host" || len(cfg.Groups) != 1 || cfg.PathWorker != "./hrcw-github" || cfg.DirBuilds != "./hrc/build") {
-				t.Fatalf("unexpected config: %+v", cfg)
-			}
-			if tt.want == "" && cfg.Groups[0].Group != "default" {
-				t.Fatalf("loaded group = %q, want default", cfg.Groups[0].Group)
-			}
-			if tt.want != "" && cfg != nil {
-				t.Fatalf("expected nil config on error, got %+v", cfg)
-			}
-		})
-	}
-}
-
-func TestLoadConfigQuota(t *testing.T) {
-	const group = `"groups":[{"url":"https://github.com/org","name":"runners","pat":{"type":"inline","value":"token"}}]`
-	for _, tt := range []struct {
-		name, resources, want string
-		quota, reserve        Resources
-	}{
-		{name: "absent"},
-		{name: "binary units", resources: `"quota":{"cpu":2,"memory":"8GiB"},"reserve":{"cpu":0.5,"memory":"512MiB"},`,
-			quota: Resources{CPU: 2, Memory: 8 << 30}, reserve: Resources{CPU: 0.5, Memory: 512 << 20}},
-		{name: "bytes and units", resources: `"quota":{"memory":"1048576"},"reserve":{"memory":"1TiB"},`,
-			quota: Resources{Memory: 1 << 20}, reserve: Resources{Memory: 1 << 40}},
-		{name: "decimal unit", resources: `"quota":{"memory":"8GB"},`, want: "invalid memory size"},
-		{name: "fraction", resources: `"quota":{"memory":"1.5GiB"},`, want: "invalid memory size"},
-		{name: "number", resources: `"quota":{"memory":1024},`, want: "failed to parse json"},
-		{name: "overflow", resources: `"quota":{"memory":"17179869184GiB"},`, want: "invalid memory size"},
-		{name: "negative cpu", resources: `"quota":{"cpu":-1},`, want: "invalid quota: cpu"},
-		{name: "negative reserve", resources: `"reserve":{"cpu":-1},`, want: "invalid reserve: cpu"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "config.json")
-			if err := os.WriteFile(path, []byte(`{"id":"host",`+tt.resources+group+`}`), 0600); err != nil {
+			path := filepath.Join(t.TempDir(), "config"+tt.ext)
+			if err := os.WriteFile(path, []byte(tt.data), 0600); err != nil {
 				t.Fatal(err)
 			}
 			cfg, err := LoadConfig(path)
 			checkError(t, err, tt.want)
-			if tt.want == "" && (cfg.Quota != tt.quota || cfg.Reserve != tt.reserve) {
-				t.Fatalf("quota %+v reserve %+v, want %+v and %+v", cfg.Quota, cfg.Reserve, tt.quota, tt.reserve)
-			}
-		})
-	}
-}
-
-func TestByteSizeString(t *testing.T) {
-	for size, want := range map[ByteSize]string{0: "0", 1000: "1000", 1 << 10: "1KiB", 3 << 29: "1536MiB", 8 << 30: "8GiB", 2 << 40: "2TiB"} {
-		if got := size.String(); got != want {
-			t.Errorf("ByteSize(%d) = %q, want %q", uint64(size), got, want)
-		}
-	}
-}
-
-func TestSecretTake(t *testing.T) {
-	dir := t.TempDir()
-	key := filepath.Join(dir, "key.pem")
-	if err := os.WriteFile(key, []byte("-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	blank := filepath.Join(dir, "blank")
-	if err := os.WriteFile(blank, []byte("\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HRC_TEST_SECRET", " token\n")
-	for _, tt := range []struct {
-		secret    Secret
-		want, err string
-	}{
-		{secret: Secret{"inline", "token"}, want: "token"},
-		{secret: Secret{"env", "HRC_TEST_SECRET"}, want: "token"},
-		{secret: Secret{"env", "HRC_TEST_UNSET_SECRET"}, err: "is empty"},
-		{secret: Secret{"file", key}, want: "-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----"},
-		{secret: Secret{"file", blank}, err: "is empty"},
-		{secret: Secret{"file", filepath.Join(dir, "missing")}},
-	} {
-		t.Run(tt.secret.Src+"/"+filepath.Base(tt.secret.Value), func(t *testing.T) {
-			got, err := tt.secret.Take()
-			if filepath.Base(tt.secret.Value) == "missing" {
-				// The message differs between platforms; the error does not.
-				if !errors.Is(err, os.ErrNotExist) {
-					t.Fatalf("error = %v, want os.ErrNotExist", err)
-				}
+			if tt.want != "" {
 				return
 			}
-			checkError(t, err, tt.err)
-			if got != tt.want {
-				t.Errorf("Take = %q, want %q", got, tt.want)
+			if cfg.Forges[0].Base().Slot != "workers" || cfg.Slots[0].Base().Space != "build" || cfg.Slots[0].Base().Quota.Memory != 8<<30 || !cfg.Slots[0].Base().Ephemeral {
+				t.Fatal("lost pool settings or placement")
+			}
+			data, err := json.Marshal(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var restored Config
+			if err := json.Unmarshal(data, &restored); err != nil {
+				t.Fatal(err)
+			}
+			checkError(t, restored.Validate(), "")
+			again, err := json.Marshal(&restored)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var before, after any
+			if err := json.Unmarshal(data, &before); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(again, &after); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(before, after) {
+				t.Fatal("round trip lost configuration")
 			}
 		})
-	}
-}
-
-func TestLoadConfigGitHubApp(t *testing.T) {
-	dir := t.TempDir()
-	key := filepath.Join(dir, "app.pem")
-	if err := os.WriteFile(key, []byte("pem\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, "config.json")
-	content := `{"id":"host","groups":[{"url":"https://github.com/org","name":"runners",` +
-		`"app":{"clientId":"Iv1.client","installationId":42,"privateKey":{"type":"file","value":` + strconv.Quote(key) + `}}}]}`
-	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := LoadConfig(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	auth, err := cfg.Groups[0].GitHubApp.auth()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if auth.ClientID != "Iv1.client" || auth.InstallationID != 42 || auth.PrivateKey != "pem" {
-		t.Errorf("GitHub App auth = %+v", auth)
 	}
 }

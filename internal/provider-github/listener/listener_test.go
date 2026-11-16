@@ -21,6 +21,14 @@ import (
 	"time"
 )
 
+func TestExecutionPlatformIsIndependentOfController(t *testing.T) {
+	l := &Listener{config: Config{OS: "Windows", Architecture: "ARM64"}}
+	options := l.messageOptions("Online")
+	if options.OS != "Windows" || options.Architecture != "ARM64" || l.executionOS() != "Windows" {
+		t.Fatalf("execution platform was replaced with controller platform: %+v", options)
+	}
+}
+
 type listenerFixture struct {
 	listener *Listener
 	input    chan BrokerMessage

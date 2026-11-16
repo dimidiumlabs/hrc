@@ -1,19 +1,21 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
 // SPDX-License-Identifier: BSD-3-Clause
 
-package worker
+package worker_test
 
 import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,10 +23,12 @@ import (
 	"time"
 	"unicode/utf16"
 
-	slotpgroup "dimidiumlabs.io/hrc/internal/slot-pgroup"
+	. "dimidiumlabs.io/hrc/internal/provider-github/worker"
+	platformruntime "dimidiumlabs.io/hrc/internal/runtime"
 )
 
 func TestMain(m *testing.M) {
+
 	if os.Getenv("HRC_WORKER_PROCESS_TEST") == "1" && len(os.Args) == 4 && os.Args[1] == "spawnclient" {
 		os.Exit(workerProcessTestChild())
 	}
@@ -33,12 +37,7 @@ func TestMain(m *testing.M) {
 
 // Decode independently of the production encoder in a real child process.
 func workerProcessTestChild() int {
-	fd, err := strconv.ParseUint(os.Args[2], 10, 64)
-	if err != nil {
-		return 20
-	}
-	input := os.NewFile(uintptr(fd), "worker-test-input")
-	defer input.Close()
+	input := os.Stdin
 	// macOS may resolve /var to /private/var; compare directories, not paths.
 	cwd, err := os.Stat(".")
 	want, wantErr := os.Stat(os.Getenv("HRC_WORKER_TEST_DIR"))
@@ -47,6 +46,7 @@ func workerProcessTestChild() int {
 	}
 	fmt.Fprintln(os.Stdout, "diagnostics="+os.Getenv("RUNNER_DIAG"))
 	fmt.Fprintln(os.Stdout, "settings="+os.Getenv("RUNNER_CONFIG"))
+	fmt.Fprintln(os.Stdout, "pid="+strconv.Itoa(os.Getpid()))
 	fmt.Fprintln(os.Stdout, "ready")
 	read := func() (int32, []byte, error) {
 		var header [8]byte
@@ -164,18 +164,10 @@ func workerTestConfig(t *testing.T, mode string, count int) (Config, *workerProc
 	if err = os.WriteFile(filepath.Join(dir, "bin", binaryName()), data, 0700); err != nil {
 		t.Fatal(err)
 	}
-	group, err := slotpgroup.New(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := group.Close(); err != nil {
-			t.Error(err)
-		}
-	})
+	group := &testEnvironment{dir: dir}
 	output := &workerProcessTestOutput{ready: make(chan struct{})}
 	env := []string{"HRC_WORKER_PROCESS_TEST=1", "HRC_WORKER_TEST_DIR=" + dir, "HRC_WORKER_TEST_MODE=" + mode, "HRC_WORKER_TEST_COUNT=" + strconv.Itoa(count)}
-	return Config{Slot: group, Path: filepath.Join(dir, "bin", binaryName()), Dir: dir, WorkDir: dir, Env: env, Stdout: output, Stderr: output}, output
+	return Config{Environment: group, Path: filepath.Join(dir, "bin", binaryName()), Dir: dir, WorkDir: dir, Env: env, Stdout: output, Stderr: output}, output
 }
 
 func workerProcessTestJob(index int) []byte {
@@ -442,18 +434,15 @@ func TestWorkerStartupFailureCleanup(t *testing.T) {
 			config, _ := workerTestConfig(t, "frames", 1)
 			switch mode {
 			case "bad_environment":
-				if err := os.Mkdir(filepath.Join(config.Dir, ".env"), 0700); err != nil {
-					t.Fatal(err)
-				}
+				config.Environment.(*testEnvironment).startErr = errors.New("environment preparation failed")
 			case "bad_executable":
 				if err := os.WriteFile(filepath.Join(config.Dir, "bin", binaryName()), []byte("not an executable"), 0700); err != nil {
 					t.Fatal(err)
 				}
 			}
 			w := newTestWorker(t, config)
-			if err := w.StartJob(t.Context(), workerProcessTestJob(0), ""); err == nil {
-				t.Fatal("startup unexpectedly succeeded")
-			}
+			// A launcher can report an exec failure asynchronously through Wait.
+			w.StartJob(t.Context(), workerProcessTestJob(0), "")
 			if _, err := waitTestWorker(t, w); err == nil {
 				t.Fatal("startup failure lost by Wait")
 			}
@@ -509,10 +498,7 @@ func TestWorkerStartupTimeout(t *testing.T) {
 	}
 	// On a loaded host the deadline can expire before StartJob consumes the
 	// Worker. Such a Worker correctly remains reusable and Done stays open.
-	if !w.started {
-		if result, err := w.Wait(); result != Unknown || !errors.Is(err, ErrNotStarted) {
-			t.Fatalf("Wait before startup = %v, %v", result, err)
-		}
+	if _, err := w.Wait(); errors.Is(err, ErrNotStarted) {
 		return
 	}
 	if result, err := waitTestWorker(t, w); result != Unknown || !errors.Is(err, context.DeadlineExceeded) {
@@ -524,10 +510,21 @@ func TestWorkerStartupTimeout(t *testing.T) {
 }
 
 func TestWorkerCloseRunningJob(t *testing.T) {
-	config, _ := workerTestConfig(t, "ignore", 1)
+	config, output := workerTestConfig(t, "ignore", 1)
 	w := newTestWorker(t, config)
 	if err := w.StartJob(t.Context(), workerProcessTestJob(0), ""); err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-output.ready:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Worker did not start")
+	}
+	_, pidText, _ := strings.Cut(output.String(), "pid=")
+	pidText, _, _ = strings.Cut(pidText, "\n")
+	pid, err := strconv.Atoi(pidText)
+	if err != nil {
+		t.Fatalf("missing Worker PID: %s", output.String())
 	}
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
@@ -535,6 +532,21 @@ func TestWorkerCloseRunningJob(t *testing.T) {
 	var exit *ExitError
 	if _, err := waitTestWorker(t, w); !errors.As(err, &exit) {
 		t.Fatalf("forced exit did not report an infrastructure failure: %v", err)
+	}
+	// Close must stop the process supplied by Environment.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		pids, err := platformruntime.ProcessIDs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(pids, pid) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Worker %d survived Close", pid)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -571,7 +583,7 @@ func TestWorkerBeforeStart(t *testing.T) {
 
 func TestWorkerRequiresSlot(t *testing.T) {
 	config, _ := workerTestConfig(t, "frames", 1)
-	config.Slot = nil
+	config.Environment = nil
 	w := newTestWorker(t, config) // Installation validation needs no slot.
 	if err := w.StartJob(t.Context(), workerProcessTestJob(0), ""); err == nil {
 		t.Fatal("started a Worker without a slot")
@@ -610,17 +622,56 @@ func TestWorkerSymlinkDirectory(t *testing.T) {
 	}
 }
 
-func TestWriteFrame(t *testing.T) {
-	var frame bytes.Buffer
-	if err := writeFrame(&frame, messageNewJob, []byte(`{"text":"😀é"}`)); err != nil {
-		t.Fatal(err)
+func binaryName() string {
+	if runtime.GOOS == "windows" {
+		return "hrcw-github.exe"
 	}
-	// Little-endian type=1, byte length=28, UTF-16 including a surrogate pair.
-	want, err := hex.DecodeString("010000001c0000007b002200740065007800740022003a0022003dd800dee90022007d00")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(frame.Bytes(), want) {
-		t.Fatalf("frame = %x, want %x", frame.Bytes(), want)
-	}
+	return "hrcw-github"
 }
+
+// This environment tests the Worker contract without a slot implementation.
+// stdin is a test transport; inherited spawnclient handles belong to pgroup tests.
+type testEnvironment struct {
+	dir      string
+	startErr error
+}
+
+func (e *testEnvironment) Cwd() string               { return e.dir }
+func (*testEnvironment) Path(parts ...string) string { return filepath.Join(parts...) }
+func (e *testEnvironment) StartWorker(ctx context.Context, config Config, env []string) (Process, io.WriteCloser, error) {
+	if e.startErr != nil {
+		return nil, nil, e.startErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	cmd := exec.Command(config.Path, "spawnclient", "0", "0")
+	cmd.Dir = config.WorkDir
+	cmd.Env = append(os.Environ(), env...)
+	cmd.Stdout, cmd.Stderr = config.Stdout, config.Stderr
+	input, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		input.Close()
+		return nil, nil, err
+	}
+	return &testProcess{cmd: cmd, input: input}, input, nil
+}
+
+type testProcess struct {
+	cmd   *exec.Cmd
+	input io.WriteCloser
+}
+
+func (p *testProcess) Wait() (int, error) {
+	err := p.cmd.Wait()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return exit.ExitCode(), nil
+	}
+	return 0, err
+}
+func (p *testProcess) Kill() error  { return p.cmd.Process.Kill() }
+func (p *testProcess) Close() error { p.input.Close(); return nil }

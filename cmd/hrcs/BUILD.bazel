@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+exports_files(["BUILD.bazel"])
+
+go_library(
+    name = "hrcs_lib",
+    srcs = glob(
+        ["*.go"],
+        exclude = ["*_test.go"],
+    ),  # keep
+    importpath = "dimidiumlabs.io/hrc/cmd/hrcs",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//internal/config",
+        "//internal/provider",
+        "//internal/provider-github",
+        "//internal/scheduler-ipc",
+        "//internal/slot",
+        "//internal/slot-pgroup",
+        "//internal/space",
+    ],
+)
+
+go_binary(
+    name = "hrcs",
+    embed = [":hrcs_lib"],
+    pure = "on",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "hrcs_test",
+    size = "small",
+    srcs = glob(["*_test.go"]),  # keep
+    embed = [":hrcs_lib"],
+    deps = [
+        "//internal/provider",
+        "//internal/scheduler-ipc",
+        "//internal/slot",
+        "//internal/space",
+    ],
+)

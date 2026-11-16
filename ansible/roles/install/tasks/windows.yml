@@ -138,7 +138,7 @@
         src: '{{ _hrc_download.path }}\{{ item }}'
         dest: '{{ _hrc_path.bin }}\{{ item }}'
         remote_src: true
-      loop: [hrcd.exe, hrcw-github.exe]
+      loop: [hrcd.exe, hrcs.exe, hrcw-github.exe]
       notify: hrc install restart
 
     - name: Install runtime
@@ -194,7 +194,7 @@
 
     - name: Write configuration
       ansible.windows.win_copy:
-        content: "{{ _hrc_config_defaults | combine(hrc_config) | to_nice_json }}\n"
+        content: "{{ _hrc_config_defaults | combine(hrc_config, recursive=true) | to_nice_json }}\n"
         dest: '{{ _hrc_path.config }}\hrc.json'
       no_log: true
       diff: false

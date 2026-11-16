@@ -110,7 +110,7 @@ class CollectionTest(unittest.TestCase):
             "ansible_python_interpreter": sys.executable,
             "ansible_facts": {"system": "Linux", "os_family": "Debian", "architecture": "x86_64", "service_mgr": "systemd"},
             "_hrc_paths": {"linux": {key: str(check_root / key) for key in ("config", "state", "logs", "bin", "runtime", "service")}},
-            "hrc_config": {"id": "check", "groups": [{"name": "check"}]},
+            "hrc_config": {"instanceId": "check", "spaces": [{"id": "build"}], "slots": [{"id": "workers", "space": "build"}], "forges": [{"id": "check", "slot": "workers", "type": "github", "url": "https://github.com/org/repo", "pat": {"type": "env", "value": "GITHUB_TOKEN"}}]},
             "hrc_secrets": {"test-key": "must-not-appear-in-output"},
             "hrc_artifact_source": str(self.artifacts),
         }
@@ -130,7 +130,7 @@ class CollectionTest(unittest.TestCase):
 
         binaries = check_root / "bin"
         binaries.mkdir(parents=True)
-        names = {"hrc", "hrc-worker", "hrcd", "hrcw-github", "hrc-custom"}
+        names = {"hrc", "hrc-worker", "hrcd", "hrcs", "hrcw-github", "hrc-custom"}
         for name in names:
             (binaries / name).write_text(name)
 

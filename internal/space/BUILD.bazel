@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Nikolay Govorov
 # SPDX-License-Identifier: BSD-3-Clause
 
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 exports_files(["BUILD.bazel"])
 
@@ -13,5 +13,11 @@ go_library(
     ),
     importpath = "dimidiumlabs.io/hrc/internal/space",
     visibility = ["//visibility:public"],
-    deps = ["//internal/slot"],
+    deps = ["//internal/provider"],
+)
+
+go_test(
+    name = "space_test",
+    srcs = glob(["*_test.go"]),  # keep
+    embed = [":space"],
 )

@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+load("//tools:platforms.bzl", "ARCH", "OS")
+load("//tools/rules_service:service.bzl", "service")
+
+exports_files(["BUILD.bazel"])
+
+service(
+    name = "release",
+    service = "hrc",
+    description = "Hosted Runner Controller",
+    deps = [
+        "//:docs_sources",
+        "//:licenses",
+        "//cmd/hrcs",
+        "//internal/provider-github/worker:runner",
+    ],
+    os = OS,
+    arch = ARCH,
+    bin = "//cmd/hrcd:hrcd",
+    executable = "hrcd",
+    args = [
+        "-config",
+        "{config}",
+    ],
+    config = "//cmd/hrcd:pkg/hrc.json",
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)

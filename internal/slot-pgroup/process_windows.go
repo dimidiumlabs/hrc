@@ -16,24 +16,22 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// configure passes Files as inherited handles named by their values, gives the
-// child a console of its own.
+// configure gives the child a console of its own.
 func (p *process) configure(files []*os.File) error {
-	handles := make([]syscall.Handle, len(files))
-	for i, f := range files {
-		handle := windows.Handle(f.Fd())
-		if err := windows.SetHandleInformation(handle, windows.HANDLE_FLAG_INHERIT, windows.HANDLE_FLAG_INHERIT); err != nil {
-			return err
-		}
-		handles[i] = syscall.Handle(handle)
-		p.cmd.Args = append(p.cmd.Args, strconv.FormatUint(uint64(handle), 10))
-	}
 	// The runner cancels a step with GenerateConsoleCtrlEvent on the step's
 	// console, which reaches every process attached to it. A console of its own
 	// keeps that Ctrl+C away from the controller and the other Workers.
 	p.cmd.SysProcAttr = &syscall.SysProcAttr{
-		CreationFlags:              windows.CREATE_NO_WINDOW,
-		AdditionalInheritedHandles: handles,
+		CreationFlags: windows.CREATE_NO_WINDOW,
+	}
+	for _, file := range files {
+		var inherited windows.Handle
+		self := windows.CurrentProcess()
+		if err := windows.DuplicateHandle(self, windows.Handle(file.Fd()), self, &inherited, 0, true, windows.DUPLICATE_SAME_ACCESS); err != nil {
+			return err
+		}
+		p.cmd.SysProcAttr.AdditionalInheritedHandles = append(p.cmd.SysProcAttr.AdditionalInheritedHandles, syscall.Handle(inherited))
+		p.cmd.Args = append(p.cmd.Args, strconv.FormatUint(uint64(inherited), 10))
 	}
 	return nil
 }
@@ -106,4 +104,14 @@ func testSendInterrupt() error {
 		return err
 	}
 	return windows.GenerateConsoleCtrlEvent(windows.CTRL_C_EVENT, 0)
+}
+
+func (p *process) closeInherited() {
+	if p.cmd.SysProcAttr == nil {
+		return
+	}
+	for _, h := range p.cmd.SysProcAttr.AdditionalInheritedHandles {
+		windows.CloseHandle(windows.Handle(h))
+	}
+	p.cmd.SysProcAttr.AdditionalInheritedHandles = nil
 }

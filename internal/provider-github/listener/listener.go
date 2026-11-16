@@ -159,7 +159,7 @@ func (l *Listener) acquire(ctx context.Context) (*RunJob, error) {
 					slog.Warn("Runner acknowledge failed", "err", err)
 				}
 			}
-			job, err := l.api.AcquireJob(ctx, ref.RunServiceURL, &AcquireJobRequest{JobMessageID: ref.RunnerRequestID, RunnerOS: runnerOS(), BillingOwnerID: ref.BillingOwnerID})
+			job, err := l.api.AcquireJob(ctx, ref.RunServiceURL, &AcquireJobRequest{JobMessageID: ref.RunnerRequestID, RunnerOS: l.executionOS(), BillingOwnerID: ref.BillingOwnerID})
 			if statusIs(err, 404, 409, 422) {
 				if err := wait(ctx, time.Second); err != nil {
 					return nil, err
@@ -322,14 +322,14 @@ func (l *Listener) receive(ctx context.Context, status string) (*BrokerMessage, 
 }
 
 func (l *Listener) messageOptions(status string) *BrokerMessageOptions {
-	return &BrokerMessageOptions{Status: status, RunnerVersion: l.config.Version, OS: runnerOS(), Architecture: runnerArch(), DisableUpdate: l.config.DisableUpdate}
+	return &BrokerMessageOptions{Status: status, RunnerVersion: l.config.Version, OS: l.executionOS(), Architecture: l.executionArch(), DisableUpdate: l.config.DisableUpdate}
 }
 
 func (l *Listener) createSession(ctx context.Context) (string, error) {
 	session, err := l.api.CreateSession(ctx, &BrokerSession{
 		OwnerName: l.config.OwnerName,
 		Agent: &BrokerAgent{ID: l.config.ID, Name: l.config.Name, Version: l.config.Version,
-			OSDescription: runtime.GOOS + " " + runtime.GOARCH},
+			OSDescription: l.executionOS() + " " + l.executionArch()},
 	})
 	if err != nil {
 		return "", err
@@ -445,4 +445,17 @@ func runnerTimeSpan(value string) (time.Duration, error) {
 		return 0, errors.New("invalid cancellation timeout")
 	}
 	return time.Duration(days*24+h)*time.Hour + time.Duration(m)*time.Minute + time.Duration(s*float64(time.Second)), nil
+}
+
+func (l *Listener) executionOS() string {
+	if l.config.OS != "" {
+		return l.config.OS
+	}
+	return runnerOS()
+}
+func (l *Listener) executionArch() string {
+	if l.config.Architecture != "" {
+		return l.config.Architecture
+	}
+	return runnerArch()
 }

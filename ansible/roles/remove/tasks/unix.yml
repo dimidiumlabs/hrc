@@ -49,7 +49,7 @@
   ansible.builtin.file:
     path: "{{ _hrc_path.bin }}/{{ item }}"
     state: absent
-  loop: "{{ ['hrcd', 'hrcw-github'] + _hrc_obsolete_binaries }}"
+  loop: "{{ ['hrcd', 'hrcs', 'hrcw-github'] + _hrc_obsolete_binaries }}"
   diff: false
 
 - name: Remove runtime

@@ -4,24 +4,35 @@
 package worker
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
-
-	"dimidiumlabs.io/hrc/internal/slot"
 )
 
-// Config describes the local runtime, regardless of how the runner is registered.
+// Environment supplies paths and the slot-specific GitHub Worker launch.
+type Environment interface {
+	Cwd() string
+	Path(...string) string
+	StartWorker(context.Context, Config, []string) (Process, io.WriteCloser, error)
+}
+
+// Process is the running GitHub Worker. The slot owns its descendants.
+type Process interface {
+	Wait() (int, error)
+	Kill() error
+	Close() error
+}
+
+// Config describes paths in the slot, regardless of where hrcs is running.
 type Config struct {
-	// Slot owns the workspace and processes across Worker lifetimes.
+	// Environment owns the workspace and processes across Worker lifetimes.
 	// It is required to start a job; closing a Worker does not close its slot.
-	Slot slot.Slot
+	Environment Environment
 
 	// Path selects the hrcw-github executable. A bare name is resolved through PATH.
 	// Dir contains shared scripts/ and externals/ resources and an optional .env.
@@ -63,30 +74,10 @@ func (c *Config) validate() error {
 	}
 
 	var err error
-	c.Dir, err = filepath.Abs(c.Dir)
-	if err != nil {
-		return err
-	}
 
 	if c.Path == "" {
 		return errors.New("Worker executable is required")
 	}
-	c.Path, err = exec.LookPath(c.Path)
-	if err != nil {
-		return fmt.Errorf("find Worker executable: %w", err)
-	}
-	c.Path, err = filepath.Abs(c.Path)
-	if err != nil {
-		return err
-	}
-	info, err := os.Stat(c.Path)
-	if err != nil {
-		return fmt.Errorf("find Worker binary: %w", err)
-	}
-	if !info.Mode().IsRegular() {
-		return errors.New("Worker binary must be a regular file")
-	}
-
 	c.Env = slices.Clone(c.Env)
 	if err := validateEnv(c.Env); err != nil {
 		return err
@@ -100,13 +91,9 @@ func (c *Config) validate() error {
 	}
 	if c.WorkDir == "" {
 		c.WorkDir = "."
-		if c.Slot != nil {
-			c.WorkDir = c.Slot.Dir()
+		if c.Environment != nil {
+			c.WorkDir = c.Environment.Cwd()
 		}
-	}
-	c.WorkDir, err = filepath.Abs(c.WorkDir)
-	if err != nil {
-		return err
 	}
 	if c.HostedServer != nil {
 		hosted := *c.HostedServer

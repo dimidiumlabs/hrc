@@ -19,27 +19,38 @@ go_library(
         exclude = ["*_test.go"],
     ),
     importpath = "dimidiumlabs.io/hrc/internal/provider-github/worker",
-    visibility = ["//internal/provider-github:__subpackages__"],  # keep
-    deps = [
-        "//internal/runtime",
-        "//internal/slot",
-    ],
+    visibility = [
+        "//internal/provider-github:__subpackages__",
+        "//internal/slot-pgroup:__pkg__",
+    ],  # keep
 )
 
 go_test(
     name = "worker_test",
     size = "small",
-    srcs = glob(["*_test.go"]),
+    srcs = glob(["worker*_test.go"]),  # keep
+    deps = [
+        ":worker",
+        "//internal/runtime",
+    ],
+)
+
+go_test(
+    name = "worker_unit_test",
+    size = "small",
+    srcs = glob(
+        ["*_test.go"],
+        exclude = ["worker*_test.go"],
+    ),  # keep
     embed = [":worker"],
-    deps = ["//internal/slot-pgroup"],
 )
 
 filegroup(
     name = "starlark_sources",
-    srcs = [
-        "BUILD.bazel",
-        "runner.bzl",
-    ],
+    srcs = glob([
+        "*.bazel",
+        "*.bzl",
+    ]),
     visibility = ["//visibility:public"],
 )
 
