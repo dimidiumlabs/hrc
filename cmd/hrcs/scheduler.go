@@ -5,17 +5,14 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"sync"
 	"time"
 
 	"dimidiumlabs.io/hrc/internal/provider"
-	ipc "dimidiumlabs.io/hrc/internal/scheduler-ipc"
 	"dimidiumlabs.io/hrc/internal/slot"
 	"dimidiumlabs.io/hrc/internal/space"
 )
@@ -159,95 +156,43 @@ func (s *scheduler) close() error {
 	return s.closeErr
 }
 
-func serve(ctx context.Context, conn net.Conn, configure func(ipc.Config) (*scheduler, error)) error {
-	wire := ipc.NewConn(conn)
-	defer wire.Close()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	stop := context.AfterFunc(ctx, func() { conn.Close() })
-	defer stop()
-	initial, err := wire.Receive()
-	if err != nil {
-		return err
-	}
-	if initial.Type != ipc.Init || initial.Version != ipc.Version {
-		return errors.New("incompatible scheduler protocol")
-	}
-	var config ipc.Config
-	if err := json.Unmarshal(initial.Payload, &config); err != nil {
-		return errors.New("invalid scheduler configuration")
-	}
-	s, err := configure(config)
-	if err != nil {
-		_ = wire.Send(ctx, ipc.Message{Type: ipc.Ready, Version: ipc.Version, Error: err.Error()})
-		return err
-	}
-	defer s.close()
-	if err := wire.Send(ctx, ipc.Message{Type: ipc.Ready, Version: ipc.Version, Capacity: config.Capacity}); err != nil {
-		return err
-	}
-	var mu sync.Mutex
-	active := make(map[uint64]*execution)
-	var tasks sync.WaitGroup
-	defer func() { cancel(); tasks.Wait() }()
-	var lastID uint64
-	for {
-		m, err := wire.Receive()
-		if err != nil {
-			if errors.Is(err, io.EOF) || ctx.Err() != nil {
-				return nil
-			}
-			return err
-		}
-		switch m.Type {
-		case ipc.Inspect:
-			if err := wire.Send(ctx, ipc.Message{Type: ipc.Snapshot, ID: m.ID, State: s.state()}); err != nil {
-				return err
-			}
-		case ipc.Submit:
-			if m.ID <= lastID {
-				return errors.New("invalid or repeated Run identifier")
-			}
-			lastID = m.ID
-			job, err := s.decode(m.Provider, m.Payload)
+func serve(ctx context.Context, conn net.Conn, configure func(*space.Config) (*scheduler, error)) error {
+	var s *scheduler
+	server := &space.Server{
+		Configure: func(config *space.Config) (err error) { s, err = configure(config); return err },
+		State:     func() space.State { return s.state() },
+		Execute: func(ctx context.Context, name string, payload []byte, stops <-chan provider.StopReason) (provider.Result, []byte, error) {
+			job, err := s.decode(name, payload)
 			if err != nil {
-				result := ipc.Message{Type: ipc.Finished, ID: m.ID, Result: provider.Failed}
-				result.SetError(err)
-				if err := wire.Send(ctx, result); err != nil {
-					return err
-				}
-				continue
+				return provider.Failed, nil, err
 			}
-			runCtx, stopRun := context.WithCancel(ctx)
-			e := &execution{ctx: runCtx, lifetime: ctx, cancel: stopRun, changed: make(chan struct{}, 1)}
-			mu.Lock()
-			active[m.ID] = e
-			mu.Unlock()
-			tasks.Go(func() {
-				defer stopRun()
-				outcome, data, err := s.execute(e, job)
-				mu.Lock()
-				delete(active, m.ID)
-				mu.Unlock()
-				result := ipc.Message{Type: ipc.Finished, ID: m.ID, Result: outcome, Data: data}
-				result.SetError(err)
-				if err := wire.Send(ctx, result); err != nil {
-					cancel()
+			lifetime, cancel := context.WithCancel(ctx)
+			defer cancel()
+			runCtx, stopRun := context.WithCancel(lifetime)
+			defer stopRun()
+			e := &execution{ctx: runCtx, lifetime: lifetime, cancel: stopRun, changed: make(chan struct{}, 1)}
+			stopped := make(chan struct{})
+			go func() {
+				defer close(stopped)
+				for {
+					select {
+					case reason := <-stops:
+						e.request(reason)
+					case <-lifetime.Done():
+						return
+					}
 				}
-			})
-		case ipc.Cancel, ipc.ShutdownRun, ipc.Kill:
-			mu.Lock()
-			e := active[m.ID]
-			mu.Unlock()
-			if e != nil {
-				e.request(m.Type)
-			}
-		case ipc.Stop:
-			return nil
-		default:
-			return fmt.Errorf("unexpected scheduler command %d", m.Type)
-		}
+			}()
+			defer func() { cancel(); <-stopped }()
+			return s.execute(e, job)
+		},
 	}
+	err := server.Serve(ctx, conn)
+	// Serve waits for RPC handlers, so every Run has stopped before slots expire.
+	if s != nil {
+		err = errors.Join(err, s.close())
+	}
+	return err
 }
 
 type execution struct {
@@ -255,12 +200,12 @@ type execution struct {
 	lifetime  context.Context
 	cancel    context.CancelFunc
 	mu        sync.Mutex
-	requested ipc.Type
+	requested provider.StopReason
 	changed   chan struct{}
 	running   bool
 }
 
-func (e *execution) request(kind ipc.Type) {
+func (e *execution) request(kind provider.StopReason) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if kind > e.requested {
@@ -325,11 +270,11 @@ func (s *scheduler) execute(e *execution, job provider.Job) (result provider.Res
 			e.mu.Unlock()
 			send, stop := context.WithTimeout(context.Background(), 30*time.Second)
 			switch kind {
-			case ipc.Cancel:
+			case provider.StopCancel:
 				err = local.Stop(send, provider.StopCancel)
-			case ipc.ShutdownRun:
+			case provider.StopShutdown:
 				err = local.Stop(send, provider.StopShutdown)
-			case ipc.Kill:
+			case provider.StopForce:
 				err = allocation.Stop(context.Background(), local)
 			}
 			stop()

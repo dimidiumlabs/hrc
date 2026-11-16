@@ -10,6 +10,9 @@ build:windows --workspace_status_command="powershell.exe -NoProfile -NonInteract
 build --stamp
 build --compilation_mode=opt
 
+# Generate protobuf/gRPC with the platform protoc toolchain, without a C++ build.
+build --@com_google_protobuf//bazel/toolchains:prefer_prebuilt_protoc
+
 build --action_env=TMP
 build --action_env=TEMP
 build --action_env=PATH

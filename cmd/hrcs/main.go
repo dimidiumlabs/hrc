@@ -17,10 +17,11 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"dimidiumlabs.io/hrc/internal/space"
+
 	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
 	github "dimidiumlabs.io/hrc/internal/provider-github"
-	ipc "dimidiumlabs.io/hrc/internal/scheduler-ipc"
 	"dimidiumlabs.io/hrc/internal/slot"
 	slotpgroup "dimidiumlabs.io/hrc/internal/slot-pgroup"
 )
@@ -55,7 +56,7 @@ func main() {
 
 	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", *socket)
 	if err == nil {
-		err = serve(ctx, conn, func(cfg ipc.Config) (*scheduler, error) { return configure(cfg, nil) })
+		err = serve(ctx, conn, func(cfg *space.Config) (*scheduler, error) { return configure(cfg, nil) })
 	}
 	if err != nil {
 		slog.Error("Scheduler stopped", "err", err)
@@ -63,7 +64,7 @@ func main() {
 	}
 }
 
-func configure(config ipc.Config, create func(string) (slot.Slot, error)) (*scheduler, error) {
+func configure(config *space.Config, create func(string) (slot.Slot, error)) (*scheduler, error) {
 	if config.Slot != "pgroup" {
 		return nil, fmt.Errorf("unknown slot implementation %q", config.Slot)
 	}
@@ -87,7 +88,7 @@ func configure(config ipc.Config, create func(string) (slot.Slot, error)) (*sche
 	if create == nil {
 		create = func(dir string) (slot.Slot, error) { return slotpgroup.New(dir, githubConfig) }
 	}
-	s, err := newScheduler(config.Capacity, !config.Ephemeral, func(ctx context.Context, name string) (slot.Slot, error) {
+	s, err := newScheduler(int(config.Capacity), !config.Ephemeral, func(ctx context.Context, name string) (slot.Slot, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}

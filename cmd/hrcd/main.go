@@ -18,7 +18,6 @@ import (
 	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
 	github "dimidiumlabs.io/hrc/internal/provider-github"
-	ipc "dimidiumlabs.io/hrc/internal/scheduler-ipc"
 	slotpgroup "dimidiumlabs.io/hrc/internal/slot-pgroup"
 	"dimidiumlabs.io/hrc/internal/space"
 	spacehost "dimidiumlabs.io/hrc/internal/space-host"
@@ -84,17 +83,14 @@ func (c SpaceConfig) NewSpace(dirs Directories, pool SlotConfig, capacity int, p
 		if err != nil {
 			return nil, err
 		}
-		data, err := json.Marshal(ipc.Config{
-			Capacity:   capacity,
+		config := &space.Config{
+			Capacity:   uint64(capacity),
 			Ephemeral:  pool.Base().Ephemeral,
 			Slot:       pool.Base().Type,
 			SlotConfig: slotConfig,
 			Providers:  providers,
-		})
-		if err != nil {
-			return nil, err
 		}
-		return spacehost.New(string(spec.ID), root, []string{"hrcs"}, data)
+		return spacehost.New(string(spec.ID), root, []string{"hrcs"}, config)
 	default:
 		return nil, space.ErrInvalidConfig
 	}

@@ -23,7 +23,6 @@ go_library(
         "//internal/provider",
         "//internal/provider-github",
         "//internal/runtime",
-        "//internal/scheduler-ipc",
         "//internal/slot-pgroup",
         "//internal/space",
         "//internal/space-host",

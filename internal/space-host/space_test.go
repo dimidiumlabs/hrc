@@ -6,16 +6,13 @@ package spacehost
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"dimidiumlabs.io/hrc/internal/provider"
-	ipc "dimidiumlabs.io/hrc/internal/scheduler-ipc"
 	"dimidiumlabs.io/hrc/internal/space"
 )
 
@@ -26,45 +23,22 @@ func TestMain(m *testing.M) {
 		if err != nil {
 			os.Exit(10)
 		}
-		wire := ipc.NewConn(conn)
-		defer wire.Close()
-		initial, err := wire.Receive()
-		if err != nil || initial.Type != ipc.Init {
-			os.Exit(11)
-		}
-		var config ipc.Config
-		if json.Unmarshal(initial.Payload, &config) != nil {
-			os.Exit(12)
-		}
-		if err := wire.Send(context.Background(), ipc.Message{Type: ipc.Ready, Version: ipc.Version, Capacity: config.Capacity}); err != nil {
-			os.Exit(13)
-		}
-		for {
-			message, err := wire.Receive()
-			if errors.Is(err, io.EOF) {
-				os.Exit(0)
-			}
-			if err != nil {
-				os.Exit(14)
-			}
-			response := ipc.Message{ID: message.ID}
-			switch message.Type {
-			case ipc.Submit:
-				if message.Provider == "disconnect" {
+
+		var capacity uint64
+		server := &space.Server{
+			Configure: func(config *space.Config) error { capacity = config.Capacity; return nil },
+			State:     func() space.State { return space.State{Capacity: capacity} },
+			Execute: func(_ context.Context, name string, payload []byte, _ <-chan provider.StopReason) (provider.Result, []byte, error) {
+				if name == "disconnect" {
 					os.Exit(0)
 				}
-				response.Type, response.Result, response.Data = ipc.Finished, provider.Succeeded, message.Payload
-			case ipc.Stop:
-				os.Exit(0)
-			case ipc.Inspect:
-				response.Type, response.State = ipc.Snapshot, space.State{Capacity: uint64(config.Capacity)}
-			default:
-				os.Exit(15)
-			}
-			if wire.Send(context.Background(), response) != nil {
-				os.Exit(16)
-			}
+				return provider.Succeeded, payload, nil
+			},
 		}
+		if err := server.Serve(context.Background(), conn); err != nil {
+			os.Exit(11)
+		}
+		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }
@@ -85,8 +59,8 @@ func testSpace(t *testing.T) *Space {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, _ := json.Marshal(ipc.Config{Capacity: 2})
-	s, err := New("test-space", filepath.Join(t.TempDir(), "space"), []string{self, "space-test-peer"}, data)
+	config := &space.Config{Capacity: 2}
+	s, err := New("test-space", filepath.Join(t.TempDir(), "space"), []string{self, "space-test-peer"}, config)
 	if err != nil {
 		t.Fatal(err)
 	}

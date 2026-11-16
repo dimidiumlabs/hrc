@@ -16,8 +16,8 @@ go_library(
     deps = [
         "//internal/config",
         "//internal/provider",
-        "//internal/scheduler-ipc",
         "//internal/space",
+        "@org_golang_google_protobuf//proto",
     ] + select({
         "@rules_go//go/platform:windows": [
             "@org_golang_x_sys//windows",
@@ -33,7 +33,6 @@ go_test(
     embed = [":space-host"],
     deps = [
         "//internal/provider",
-        "//internal/scheduler-ipc",
         "//internal/space",
     ],
 )

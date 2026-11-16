@@ -1,0 +1,86 @@
+// SPDX-FileCopyrightText: 2026 Nikolay Govorov
+// SPDX-License-Identifier: BSD-3-Clause
+syntax = "proto3";
+package hrc.space.v1;
+option go_package = "dimidiumlabs.io/hrc/internal/space";
+
+service Scheduler {
+  rpc Init(InitRequest) returns (InitResponse);
+  rpc Inspect(InspectRequest) returns (Snapshot);
+
+  // One stream owns one Run. Start must be first, followed only by Stop.
+  // Stream loss stops this Run; connection loss stops all Runs. No replay.
+  rpc Run(stream RunCommand) returns (stream RunEvent);
+}
+
+// Concrete slot/provider settings are decoded only by the composition root.
+message Config {
+  uint64 capacity = 1;
+  bool ephemeral = 2;
+  string slot = 3;
+  bytes slot_config = 4;
+  map<string, bytes> providers = 5;
+}
+
+message InitRequest {
+  uint32 version = 1;
+  Config config = 2;
+}
+message InitResponse {
+  uint32 version = 1;
+  uint64 capacity = 2;
+  WireError error = 3;
+}
+
+message InspectRequest {}
+message Snapshot {
+  uint64 capacity = 1;
+  uint64 slots = 2;
+  uint64 busy_slots = 3;
+  uint64 running = 4;
+  uint64 queued = 5;
+}
+
+message StartRequest {
+  string provider = 1;
+  bytes payload = 2;
+}
+
+enum RunStopReason {
+  STOP_REASON_UNSPECIFIED = 0;
+  CANCEL = 1;
+  SHUTDOWN = 2;
+  FORCE = 3;
+}
+message StopRequest {
+  RunStopReason reason = 1;
+}
+
+message RunCommand {
+  oneof command {
+    StartRequest start = 1;
+    StopRequest stop = 2;
+  }
+}
+
+message WireError {
+  string message = 1;
+  string kind = 2;
+}
+
+message FinishResult {
+  uint32 result = 1;
+  bytes data = 2;
+}
+
+message FinishError {
+  WireError error = 1;
+}
+
+// Exactly one terminal event is sent for a Run.
+message RunEvent {
+  oneof event {
+    FinishResult finish_result = 1;
+    FinishError finish_error = 2;
+  }
+}

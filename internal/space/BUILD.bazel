@@ -1,7 +1,21 @@
 # SPDX-FileCopyrightText: 2026 Nikolay Govorov
 # SPDX-License-Identifier: BSD-3-Clause
 
+load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
 load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("@rules_go//proto:def.bzl", "go_grpc_library")
+
+# gazelle:proto disable_global
+proto_library(
+    name = "space_proto",
+    srcs = glob(["*.proto"]),
+)
+
+go_grpc_library(
+    name = "space_go_grpc",
+    proto = ":space_proto",
+    importpath = "dimidiumlabs.io/hrc/internal/space",
+)
 
 exports_files(["BUILD.bazel"])
 
@@ -13,11 +27,24 @@ go_library(
     ),
     importpath = "dimidiumlabs.io/hrc/internal/space",
     visibility = ["//visibility:public"],
-    deps = ["//internal/provider"],
+    embed = [":space_go_grpc"],
+    deps = [
+        "//internal/provider",
+        "//internal/slot",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_golang_google_grpc//status",
+    ],
 )
 
 go_test(
     name = "space_test",
     srcs = glob(["*_test.go"]),  # keep
     embed = [":space"],
+    deps = [
+        "//internal/provider",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+    ],
 )

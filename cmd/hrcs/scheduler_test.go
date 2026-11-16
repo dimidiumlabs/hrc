@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"dimidiumlabs.io/hrc/internal/provider"
-	ipc "dimidiumlabs.io/hrc/internal/scheduler-ipc"
 	"dimidiumlabs.io/hrc/internal/slot"
 	"dimidiumlabs.io/hrc/internal/space"
 )
@@ -107,7 +106,7 @@ func (s *executionSlot) Destroy(context.Context) error {
 }
 
 type schedulerHarness struct {
-	client             *ipc.Client
+	client             *space.Client
 	done               chan error
 	created, destroyed atomic.Int32
 	started            chan string
@@ -121,10 +120,10 @@ func newSchedulerHarness(t *testing.T, reuse bool) *schedulerHarness {
 	t.Helper()
 	h := &schedulerHarness{done: make(chan error, 1), started: make(chan string, 10)}
 	server, client := net.Pipe()
-	config, _ := json.Marshal(ipc.Config{Capacity: 1, Ephemeral: !reuse})
+	config := &space.Config{Capacity: 1, Ephemeral: !reuse}
 	go func() {
-		h.done <- serve(t.Context(), server, func(config ipc.Config) (*scheduler, error) {
-			s, err := newScheduler(config.Capacity, !config.Ephemeral, func(_ context.Context, name string) (slot.Slot, error) {
+		h.done <- serve(t.Context(), server, func(config *space.Config) (*scheduler, error) {
+			s, err := newScheduler(int(config.Capacity), !config.Ephemeral, func(_ context.Context, name string) (slot.Slot, error) {
 				h.created.Add(1)
 				return &executionSlot{harness: h, name: name}, nil
 			})
@@ -142,7 +141,7 @@ func newSchedulerHarness(t *testing.T, reuse bool) *schedulerHarness {
 		})
 	}()
 	var err error
-	h.client, err = ipc.NewClient(t.Context(), client, config)
+	h.client, err = space.NewClient(t.Context(), client, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +243,7 @@ func TestSchedulerIPCRejectsJobsBeforeCreatingSlots(t *testing.T) {
 		t.Fatalf("typed error lost: %v", err)
 	}
 	run = h.start(t, []byte("{"))
-	if result, _, err := waitRun(run); result != provider.Failed || err == nil {
+	if result, _, err := waitRun(run); result != provider.Unknown || err == nil {
 		t.Fatal("invalid job accepted")
 	}
 	if h.created.Load() != 0 {
@@ -311,7 +310,7 @@ func TestCancellationRacingWithCompletionPreservesOutcome(t *testing.T) {
 		close(done)
 	}()
 	<-created
-	e.request(ipc.Cancel)
+	e.request(provider.StopCancel)
 	<-done
 	if failure != nil || result != provider.Succeeded || !bytes.Equal(data, []byte{1}) {
 		t.Fatalf("completion lost: %v, %v", result, failure)

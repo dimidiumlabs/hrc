@@ -301,7 +301,7 @@
     "//tools/rules_msbuild:dependencies.bzl%dependencies": {
       "os:linux,arch:amd64": {
         "bzlTransitiveDigest": "+Y46yTj1XfPNpQegd3BY7ERj/RHnVGSfuSAAB60XRBc=",
-        "usagesDigest": "lv7JVb+koUx+7dByANTWjCB0cotEIkwPOMFtIwys5TA=",
+        "usagesDigest": "d/0egAjoXcPGJxrKjN6KN72e+2E3ThuLY69esGOXXwU=",
         "recordedInputs": [
           "REPO_MAPPING:,actions_runner +http_archive+actions_runner"
         ],

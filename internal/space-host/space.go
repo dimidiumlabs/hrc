@@ -19,8 +19,8 @@ import (
 
 	"dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
-	ipc "dimidiumlabs.io/hrc/internal/scheduler-ipc"
 	"dimidiumlabs.io/hrc/internal/space"
+	"google.golang.org/protobuf/proto"
 )
 
 // Config describes a host space.
@@ -52,8 +52,8 @@ type Space struct {
 	name      string
 	root      string
 	command   []string
-	config    []byte
-	client    *ipc.Client
+	config    *space.Config
+	client    *space.Client
 	cmd       *exec.Cmd
 	done      chan struct{}
 	waitErr   error
@@ -63,7 +63,7 @@ type Space struct {
 }
 
 // New prepares configuration only. Run launches hrcs on the first Job.
-func New(name, root string, command []string, config []byte) (*Space, error) {
+func New(name, root string, command []string, config *space.Config) (*Space, error) {
 	if name == "" || root == "" || len(command) == 0 {
 		return nil, fmt.Errorf("%w: space name, root and scheduler command are required", space.ErrInvalidConfig)
 	}
@@ -80,7 +80,7 @@ func New(name, root string, command []string, config []byte) (*Space, error) {
 	if err != nil {
 		return nil, errors.Join(space.ErrInvalidConfig, err)
 	}
-	return &Space{name: name, root: root, command: command, config: slices.Clone(config)}, nil
+	return &Space{name: name, root: root, command: command, config: proto.CloneOf(config)}, nil
 }
 
 func (s *Space) Name() string { return s.name }
@@ -133,7 +133,7 @@ func (s *Space) Run(ctx context.Context, job provider.Job) (provider.Run, error)
 	return client.Start(ctx, job.Type(), payload)
 }
 
-func (s *Space) connect(ctx context.Context) (*ipc.Client, error) {
+func (s *Space) connect(ctx context.Context) (*space.Client, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -166,7 +166,7 @@ func (s *Space) connect(ctx context.Context) (*ipc.Client, error) {
 	return client, nil
 }
 
-func (s *Space) start(ctx context.Context) (*ipc.Client, error) {
+func (s *Space) start(ctx context.Context) (*space.Client, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -207,11 +207,11 @@ func (s *Space) start(ctx context.Context) (*ipc.Client, error) {
 	}()
 	conn, err := listener.Accept()
 	if err == nil {
-		var client *ipc.Client
+		var client *space.Client
 		// On disconnect hrcs drains its Runs before exiting. Wait for that
 		// shutdown before releasing handles; an abnormal exit remains a lost Run.
 		owned := &processConn{Conn: conn, done: s.done, kill: s.cmd.Process.Kill}
-		client, err = ipc.NewClient(ctx, owned, s.config)
+		client, err = space.NewClient(ctx, owned, s.config)
 		if err == nil {
 			return client, nil
 		}
