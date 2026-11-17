@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
 // SPDX-License-Identifier: BSD-3-Clause
 
-package space
+package main
 
 import (
 	"context"
@@ -10,26 +10,29 @@ import (
 	"sync"
 
 	"dimidiumlabs.io/hrc/internal/provider"
+	"dimidiumlabs.io/hrc/internal/space"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-// Server adapts the scheduler to RPC. Execute owns a Run until it and its cleanup
+// Scheduler adapts execution to RPC. Execute owns a Run until it and its cleanup
 // finish, and must stop it when ctx is canceled. Serve waits for all handlers.
-type Server struct {
-	Configure func(*Config) error
+type Scheduler struct {
+	Configure func(*space.Config) error
 	Execute   func(ctx context.Context, name string, payload []byte, stops <-chan provider.StopReason) (provider.Result, []byte, error)
-	State     func() State
+	State     func() space.State
 
 	mu          sync.RWMutex
 	initialized bool
 	attempted   bool
 }
 
-func (s *Server) Serve(ctx context.Context, conn net.Conn) error {
-	server := grpc.NewServer(grpc.MaxRecvMsgSize(MaxMessageSize), grpc.MaxSendMsgSize(MaxMessageSize), grpc.WaitForHandlers(true))
-	RegisterSchedulerServer(server, s)
+var _ space.SchedulerServer = (*Scheduler)(nil)
+
+func (s *Scheduler) Serve(ctx context.Context, conn net.Conn) error {
+	server := grpc.NewServer(grpc.MaxRecvMsgSize(space.MaxMessageSize), grpc.MaxSendMsgSize(space.MaxMessageSize), grpc.WaitForHandlers(true))
+	space.RegisterSchedulerServer(server, s)
 	watched := &watchedConn{Conn: conn, done: make(chan struct{})}
 	listener := &singleListener{conn: watched, done: make(chan struct{})}
 	defer watched.Close()
@@ -51,7 +54,7 @@ func (s *Server) Serve(ctx context.Context, conn net.Conn) error {
 	return err
 }
 
-func (s *Server) Init(_ context.Context, request *InitRequest) (*InitResponse, error) {
+func (s *Scheduler) Init(_ context.Context, request *space.InitRequest) (*space.InitResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.attempted {
@@ -59,27 +62,27 @@ func (s *Server) Init(_ context.Context, request *InitRequest) (*InitResponse, e
 	}
 	s.attempted = true
 	cfg := request.GetConfig()
-	if request.GetVersion() != Version || cfg == nil || cfg.Capacity == 0 || cfg.Capacity > uint64(^uint(0)>>1) {
-		return &InitResponse{Version: Version, Error: EncodeError(ErrInvalidConfig)}, nil
+	if request.GetVersion() != space.Version || cfg == nil || cfg.Capacity == 0 || cfg.Capacity > uint64(^uint(0)>>1) {
+		return &space.InitResponse{Version: space.Version, Error: space.EncodeError(space.ErrInvalidConfig)}, nil
 	}
 	if err := s.Configure(cfg); err != nil {
-		return &InitResponse{Version: Version, Error: EncodeError(err)}, nil
+		return &space.InitResponse{Version: space.Version, Error: space.EncodeError(err)}, nil
 	}
 	s.initialized = true
-	return &InitResponse{Version: Version, Capacity: cfg.Capacity}, nil
+	return &space.InitResponse{Version: space.Version, Capacity: cfg.Capacity}, nil
 }
 
-func (s *Server) ready() bool { s.mu.RLock(); defer s.mu.RUnlock(); return s.initialized }
+func (s *Scheduler) ready() bool { s.mu.RLock(); defer s.mu.RUnlock(); return s.initialized }
 
-func (s *Server) Inspect(context.Context, *InspectRequest) (*Snapshot, error) {
+func (s *Scheduler) Inspect(context.Context, *space.InspectRequest) (*space.Snapshot, error) {
 	if !s.ready() {
 		return nil, status.Error(codes.FailedPrecondition, "scheduler is not initialized")
 	}
 	state := s.State()
-	return &Snapshot{Capacity: state.Capacity, Slots: state.Slots, BusySlots: state.BusySlots, Running: state.Running, Queued: state.Queued}, nil
+	return &space.Snapshot{Capacity: state.Capacity, Slots: state.Slots, BusySlots: state.BusySlots, Running: state.Running, Queued: state.Queued}, nil
 }
 
-func (s *Server) Run(stream grpc.BidiStreamingServer[RunCommand, RunEvent]) error {
+func (s *Scheduler) Run(stream grpc.BidiStreamingServer[space.RunCommand, space.RunEvent]) error {
 	if !s.ready() {
 		return status.Error(codes.FailedPrecondition, "scheduler is not initialized")
 	}
@@ -106,11 +109,11 @@ func (s *Server) Run(stream grpc.BidiStreamingServer[RunCommand, RunEvent]) erro
 			stop := command.GetStop()
 			var reason provider.StopReason
 			switch stop.GetReason() {
-			case RunStopReason_CANCEL:
+			case space.RunStopReason_CANCEL:
 				reason = provider.StopCancel
-			case RunStopReason_SHUTDOWN:
+			case space.RunStopReason_SHUTDOWN:
 				reason = provider.StopShutdown
-			case RunStopReason_FORCE:
+			case space.RunStopReason_FORCE:
 				reason = provider.StopForce
 			default:
 				receiveErr <- status.Error(codes.InvalidArgument, "expected a valid Stop command")
@@ -131,7 +134,7 @@ func (s *Server) Run(stream grpc.BidiStreamingServer[RunCommand, RunEvent]) erro
 	default:
 	}
 	if err != nil {
-		return stream.Send(&RunEvent{Event: &RunEvent_FinishError{FinishError: &FinishError{Error: EncodeError(err)}}})
+		return stream.Send(&space.RunEvent{Event: &space.RunEvent_FinishError{FinishError: &space.FinishError{Error: space.EncodeError(err)}}})
 	}
-	return stream.Send(&RunEvent{Event: &RunEvent_FinishResult{FinishResult: &FinishResult{Result: uint32(result), Data: data}}})
+	return stream.Send(&space.RunEvent{Event: &space.RunEvent_FinishResult{FinishResult: &space.FinishResult{Result: uint32(result), Data: data}}})
 }

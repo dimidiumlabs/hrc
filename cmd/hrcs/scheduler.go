@@ -158,7 +158,7 @@ func (s *scheduler) close() error {
 
 func serve(ctx context.Context, conn net.Conn, configure func(*space.Config) (*scheduler, error)) error {
 	var s *scheduler
-	server := &space.Server{
+	server := &Scheduler{
 		Configure: func(config *space.Config) (err error) { s, err = configure(config); return err },
 		State:     func() space.State { return s.state() },
 		Execute: func(ctx context.Context, name string, payload []byte, stops <-chan provider.StopReason) (provider.Result, []byte, error) {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -96,33 +97,82 @@ func (c *Controller) Serve(ctx context.Context) <-chan *acquiredJob {
 	jobs := make(chan *acquiredJob)
 	c.done = make(chan struct{})
 	c.active = make(map[*acquiredJob]struct{})
+	acquisition, stopAcquisition := context.WithCancel(ctx)
 	failures := make([]error, len(c.forges))
+	var queues sync.Mutex
+	open := len(c.forges)
 	var wg sync.WaitGroup
 	for i, forge := range c.forges {
 		wg.Go(func() {
-			for handle := range forge.queue.Serve(ctx, forge.demand) {
-				execution, shutdown := context.WithCancelCause(context.WithoutCancel(ctx))
-				job := &acquiredJob{forge: forge.id, space: forge.space, handle: handle, ctx: execution, shutdown: shutdown, owner: c}
-				c.mu.Lock()
-				c.active[job] = struct{}{}
-				c.tasks.Add(1)
-				c.mu.Unlock()
-				select {
-				case jobs <- job:
-				case <-ctx.Done():
-					if err := finishUnstarted(ctx, handle, provider.Canceled); err != nil {
-						failures[i] = errors.Join(failures[i], fmt.Errorf("forge %q: %w", forge.id, err))
+			delay := 2 * time.Second
+			for acquisition.Err() == nil {
+				for handle := range forge.queue.Serve(acquisition, forge.demand) {
+					execution, shutdown := context.WithCancelCause(context.WithoutCancel(ctx))
+					job := &acquiredJob{forge: forge.id, space: forge.space, handle: handle, ctx: execution, shutdown: shutdown, owner: c}
+					c.mu.Lock()
+					c.active[job] = struct{}{}
+					c.tasks.Add(1)
+					c.mu.Unlock()
+					select {
+					case jobs <- job:
+						delay = 2 * time.Second
+					case <-acquisition.Done():
+						if err := finishUnstarted(ctx, handle, provider.Canceled); err != nil {
+							failures[i] = errors.Join(failures[i], fmt.Errorf("forge %q: %w", forge.id, err))
+						}
+						job.complete()
 					}
-					job.complete()
 				}
+				queues.Lock()
+				open--
+				if open == 0 {
+					stopAcquisition()
+				}
+				queues.Unlock()
+				if acquisition.Err() != nil {
+					return
+				}
+				slog.Warn("Queue closed, retrying", "forge", forge.id, "delay", delay)
+				timer := time.NewTimer(delay)
+				select {
+				case <-acquisition.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
+				queues.Lock()
+				if acquisition.Err() != nil {
+					queues.Unlock()
+					return
+				}
+				open++
+				queues.Unlock()
+				delay = min(2*delay, time.Minute)
 			}
 		})
 	}
 	go func() {
+		defer close(c.done)
+		defer close(jobs)
+		defer stopAcquisition()
 		wg.Wait()
 		c.err = errors.Join(failures...)
-		close(jobs)
-		close(c.done)
+		if ctx.Err() != nil || len(c.forges) == 0 {
+			return
+		}
+		// All queue streams have ended. No more tasks can be added, but
+		// delivered jobs must finish execution and Handle cleanup before
+		// the daemon exits. External shutdown may still interrupt draining.
+		drained := make(chan struct{})
+		go func() { c.tasks.Wait(); close(drained) }()
+		select {
+		case <-ctx.Done():
+			return
+		case <-drained:
+		}
+		if ctx.Err() == nil {
+			c.err = errors.Join(c.err, errors.New("all queues closed"))
+		}
 	}()
 	return jobs
 }

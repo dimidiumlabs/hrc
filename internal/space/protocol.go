@@ -13,22 +13,37 @@ import (
 	"dimidiumlabs.io/hrc/internal/slot"
 )
 
-const Version = 1
-const MaxMessageSize = 64 << 20
+const (
+	Version        = 1
+	MaxMessageSize = 64 << 20
+)
 
 // Only stable public errors cross IPC; provider errors retain their message.
 var wireErrors = map[string]error{
+	"context.canceled": context.Canceled,
+	"context.deadline": context.DeadlineExceeded,
+
+	"slot.busy":                slot.ErrBusy,
+	"slot.destroyed":           slot.ErrDestroyed,
+	"slot.invalidRun":          slot.ErrInvalidRun,
+	"slot.prepare":             slot.ErrPrepare,
+	"slot.providerUnavailable": slot.ErrProviderUnavailable,
+	"slot.unknown":             slot.ErrUnknown,
+	"slot.unknownRun":          slot.ErrUnknownRun,
+
+	"space.closed":        ErrClosed,
+	"space.invalidConfig": ErrInvalidConfig,
+	"space.unavailable":   ErrUnavailable,
+	"space.unknown":       ErrUnknown,
+
+	"provider.closed":            provider.ErrClosed,
+	"provider.invalidConfig":     provider.ErrInvalidConfig,
+	"provider.invalidJob":        provider.ErrInvalidJob,
 	"provider.invalidStopReason": provider.ErrInvalidStopReason,
-	"provider.invalidConfig":     provider.ErrInvalidConfig, "provider.invalidJob": provider.ErrInvalidJob,
-	"provider.unsupportedJob": provider.ErrUnsupportedJob, "provider.closed": provider.ErrClosed,
-	"provider.unavailable": provider.ErrUnavailable, "provider.leaseLost": provider.ErrLeaseLost,
-	"provider.unknown": provider.ErrUnknown,
-	"slot.busy":        slot.ErrBusy, "slot.destroyed": slot.ErrDestroyed,
-	"slot.unknownRun": slot.ErrUnknownRun, "slot.providerUnavailable": slot.ErrProviderUnavailable,
-	"slot.invalidRun": slot.ErrInvalidRun, "slot.prepare": slot.ErrPrepare, "slot.unknown": slot.ErrUnknown,
-	"space.unavailable": ErrUnavailable, "space.closed": ErrClosed,
-	"space.invalidConfig": ErrInvalidConfig, "space.unknown": ErrUnknown,
-	"context.canceled": context.Canceled, "context.deadline": context.DeadlineExceeded,
+	"provider.leaseLost":         provider.ErrLeaseLost,
+	"provider.unavailable":       provider.ErrUnavailable,
+	"provider.unknown":           provider.ErrUnknown,
+	"provider.unsupportedJob":    provider.ErrUnsupportedJob,
 }
 
 func EncodeError(err error) *WireError {
@@ -44,6 +59,7 @@ func EncodeError(err error) *WireError {
 	}
 	return m
 }
+
 func (m *WireError) Err() error {
 	if m == nil {
 		return nil

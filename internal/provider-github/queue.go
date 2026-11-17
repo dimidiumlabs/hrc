@@ -31,7 +31,7 @@ type Config struct {
 	RunnerVersion                string
 	RunnerOS, RunnerArchitecture string
 	NewClient                    func() (*scaleset.Client, error)
-	RetryMin, RetryMax           time.Duration
+	RetryMin, RetryMax           time.Duration // Deprecated: session retry delays are owned by the controller.
 }
 
 // WorkerConfig describes the installation in a slot, independently of Queue.
@@ -53,7 +53,10 @@ func (c WorkerConfig) Validate() error {
 	return nil
 }
 
-type Queue struct{ config Config }
+type Queue struct {
+	config  Config
+	running atomic.Int32 // Delivered Handles can outlive a Serve invocation.
+}
 
 // New needs protocol metadata, not an installed Worker.
 func New(config Config) (*Queue, error) {
@@ -89,28 +92,14 @@ func (q *Queue) run(ctx context.Context, demand provider.Demand, jobs chan<- pro
 	logger := slog.Default().With("group", q.config.Name)
 	logger.Info("Starting GitHub queue")
 	// Acquired jobs retain their own Broker connections across queue failures.
+	// The controller owns session retries; running must survive reopening so
+	// a replacement session does not acquire duplicates for existing jobs.
 	var runners sync.WaitGroup
-	var running atomic.Int32
+	acquisition, cancel := context.WithCancel(ctx)
 	defer runners.Wait()
-	delay := q.config.RetryMin
-	for {
-		started := time.Now()
-		err := q.serve(ctx, demand, jobs, &runners, &running)
-		if ctx.Err() != nil {
-			return
-		}
-		if time.Since(started) > q.config.RetryMax {
-			delay = q.config.RetryMin
-		}
-		logger.Error("Group session failed, retrying", "err", err, "delay", delay)
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
-		delay = min(2*delay, q.config.RetryMax)
+	defer cancel()
+	if err := q.serve(acquisition, demand, jobs, &runners, &q.running); err != nil && ctx.Err() == nil {
+		logger.Error("Group session failed", "err", err)
 	}
 }
 

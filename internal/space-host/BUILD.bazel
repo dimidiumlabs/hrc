@@ -35,5 +35,6 @@ go_test(
     deps = [
         "//internal/provider",
         "//internal/space",
+        "@org_golang_google_grpc//:grpc",
     ],
 )

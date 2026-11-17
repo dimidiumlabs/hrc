@@ -18,6 +18,9 @@ func dial(conn net.Conn) (*grpc.ClientConn, error) {
 	return grpc.NewClient("passthrough:///space",
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDisableRetry(),
+		// This transport cannot reconnect. The default 30-minute idle
+		// timeout would otherwise retire a healthy scheduler generation.
+		grpc.WithIdleTimeout(0),
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			var accepted net.Conn
 			once.Do(func() { accepted = conn })
@@ -37,6 +40,8 @@ type watchedConn struct {
 	done chan struct{}
 }
 
+var _ net.Conn = (*watchedConn)(nil)
+
 func (c *watchedConn) Read(data []byte) (int, error) {
 	n, err := c.Conn.Read(data)
 	if err != nil {
@@ -50,22 +55,3 @@ func (c *watchedConn) Close() error {
 	c.once.Do(func() { close(c.done) })
 	return err
 }
-
-type singleListener struct {
-	conn      net.Conn
-	once      sync.Once
-	closeOnce sync.Once
-	done      chan struct{}
-}
-
-func (l *singleListener) Accept() (net.Conn, error) {
-	var conn net.Conn
-	l.once.Do(func() { conn = l.conn })
-	if conn != nil {
-		return conn, nil
-	}
-	<-l.done
-	return nil, net.ErrClosed
-}
-func (l *singleListener) Close() error   { l.closeOnce.Do(func() { close(l.done) }); return nil }
-func (l *singleListener) Addr() net.Addr { return l.conn.LocalAddr() }

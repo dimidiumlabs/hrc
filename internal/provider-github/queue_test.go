@@ -439,11 +439,12 @@ func TestAcquisitionFailureDoesNotPrepareExecution(t *testing.T) {
 	}
 }
 
-func TestQueueRetriesSessionWithoutInterruptingHandle(t *testing.T) {
+func TestQueueReopeningPreservesDeliveredHandle(t *testing.T) {
 	runner, completed, _, _, _ := queueFixture(t, "success")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var sessions, sessionDeletes, polls, jits atomic.Int32
+	failSession := make(chan struct{})
 	var capacities sync.Map // Advertised X-ScaleSetMaxCapacity values.
 	var api *httptest.Server
 	api = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -478,7 +479,12 @@ func TestQueueRetriesSessionWithoutInterruptingHandle(t *testing.T) {
 		case r.URL.Path == "/queue":
 			capacities.Store(r.Header.Get(scaleset.HeaderScaleSetMaxCapacity), true)
 			if polls.Add(1) == 1 {
-				// Fail the session while the first runner executes its job.
+				// Fail only after the Handle has transferred to the caller.
+				select {
+				case <-failSession:
+				case <-r.Context().Done():
+					return
+				}
 				w.WriteHeader(http.StatusBadRequest)
 				io.WriteString(w, `{"typeName":"QueueFailure"}`)
 				return
@@ -513,17 +519,42 @@ func TestQueueRetriesSessionWithoutInterruptingHandle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for job := range queue.Serve(ctx, demand) {
-		// Keep the Handle alive across the failed session and its replacement.
-		for sessions.Load() < 3 && ctx.Err() == nil {
-			time.Sleep(time.Millisecond)
-		}
-		if err := job.Finish(ctx, provider.Failed, nil); err != nil {
-			t.Fatal(err)
-		}
-		if err := job.Close(ctx); err != nil {
-			t.Fatal(err)
-		}
+	// Session failure closes the stream. Reopening must preserve the
+	// count and connections of jobs delivered by an earlier invocation.
+	if job, ok := <-queue.Serve(ctx, demand); ok {
+		job.Close(ctx)
+		t.Fatal("initial conflicting session delivered a job")
+	}
+	if ctx.Err() != nil {
+		t.Fatal("failed idle queue did not close promptly")
+	}
+	jobs := queue.Serve(ctx, demand)
+	job, ok := <-jobs
+	if !ok {
+		t.Fatal("queue closed before delivering its job")
+	}
+	close(failSession)
+	if extra, ok := <-jobs; ok {
+		extra.Close(ctx)
+		t.Fatal("failed session delivered an extra job")
+	}
+	// There must be no provider-owned retry, even with an active Handle.
+	if sessions.Load() != 2 {
+		t.Fatalf("queue retried its own session: %d", sessions.Load())
+	}
+	resumed := queue.Serve(ctx, demand)
+	for sessions.Load() < 3 && ctx.Err() == nil {
+		time.Sleep(time.Millisecond)
+	}
+	if err := job.Finish(ctx, provider.Failed, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := job.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for extra := range resumed {
+		extra.Close(ctx)
+		t.Error("reopened session acquired a duplicate job")
 	}
 	if completed.Load() != 1 {
 		t.Errorf("job interrupted by session failure: complete=%d", completed.Load())

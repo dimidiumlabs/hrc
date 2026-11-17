@@ -20,6 +20,9 @@ go_library(
         "//internal/slot",
         "//internal/slot-pgroup",
         "//internal/space",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
     ],
 )
 
@@ -39,5 +42,9 @@ go_test(
         "//internal/provider",
         "//internal/slot",
         "//internal/space",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_golang_google_grpc//status",
     ],
 )

@@ -7,8 +7,10 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"dimidiumlabs.io/hrc/internal/provider"
@@ -74,6 +76,8 @@ type fakeJob struct {
 	onRun       func()
 	calls       *[]string
 	result      provider.Result
+	finishErr   error
+	closeErr    error
 	reservation provider.Reservation
 	closeOnce   sync.Once
 	started     bool
@@ -93,7 +97,7 @@ func (*fakeDescription) Unmarshal([]byte) error   { return nil }
 func (j *fakeJob) Finish(_ context.Context, result provider.Result, _ []byte) error {
 	j.result = result
 	*j.calls = append(*j.calls, "finish")
-	return nil
+	return j.finishErr
 }
 func (j *fakeJob) Close(context.Context) error {
 	j.closeOnce.Do(func() {
@@ -102,7 +106,7 @@ func (j *fakeJob) Close(context.Context) error {
 			j.reservation.Close()
 		}
 	})
-	return nil
+	return j.closeErr
 }
 
 type fakeRun struct {
@@ -278,6 +282,229 @@ func serveJobs(ctx context.Context, queue provider.Queue, environment space.Spac
 	return failure
 }
 
+type queueSession struct {
+	ctx  context.Context
+	jobs chan provider.Handle
+}
+
+type reopeningQueue struct{ sessions chan queueSession }
+
+func (q *reopeningQueue) Serve(ctx context.Context, _ provider.Demand) <-chan provider.Handle {
+	input := make(chan provider.Handle)
+	output := make(chan provider.Handle)
+	q.sessions <- queueSession{ctx: ctx, jobs: input}
+	go func() {
+		defer close(output)
+		for {
+			select {
+			case handle, ok := <-input:
+				if !ok {
+					return
+				}
+				select {
+				case output <- handle:
+				case <-ctx.Done():
+					finishUnstarted(ctx, handle, provider.Canceled)
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return output
+}
+
+func TestControllerDrainsWhenAllQueuesClose(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	queue := &reopeningQueue{sessions: make(chan queueSession, 4)}
+	capacity, _, handle, _ := fakeController(t)
+	c := &Controller{forges: []managedForge{{id: "forge", space: "target", queue: queue, demand: capacity}}}
+	jobs := c.Serve(ctx)
+	session := <-queue.sessions
+	session.jobs <- handle
+	task := <-jobs
+	close(session.jobs)
+	<-session.ctx.Done()
+	if task.ctx.Err() != nil {
+		t.Fatal("queue exhaustion canceled an acquired job")
+	}
+	select {
+	case <-queue.sessions:
+		t.Fatal("controller retried after all queues closed")
+	case <-jobs:
+		t.Fatal("controller stopped before job cleanup")
+	default:
+	}
+	handle.Finish(ctx, provider.Succeeded, nil)
+	handle.Close(ctx)
+	task.complete()
+	if _, ok := <-jobs; ok {
+		t.Fatal("unexpected job after all queues closed")
+	}
+	if err := c.Close(); err == nil || !strings.Contains(err.Error(), "all queues closed") {
+		t.Fatalf("lost all-queues-closed error: %v", err)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("test completed only because its context expired")
+	}
+}
+
+func TestControllerRetriesQueuesIndependently(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		queue := &reopeningQueue{sessions: make(chan queueSession, 4)}
+		healthy := &reopeningQueue{sessions: make(chan queueSession, 4)}
+		capacity, _, handle, _ := fakeController(t)
+		c := &Controller{forges: []managedForge{
+			{id: "retrying", space: "target", queue: queue, demand: capacity},
+			{id: "healthy", space: "target", queue: healthy, demand: capacity},
+		}}
+		jobs := c.Serve(ctx)
+		session, other := <-queue.sessions, <-healthy.sessions
+		close(session.jobs)
+		synctest.Wait()
+		// A failed queue must not prevent a healthy queue from delivering
+		// jobs, nor cancel those jobs while reconnection is in progress.
+		other.jobs <- handle
+		task := <-jobs
+		for _, delay := range []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 32 * time.Second, time.Minute, time.Minute} {
+			time.Sleep(delay - time.Nanosecond)
+			synctest.Wait()
+			select {
+			case <-queue.sessions:
+				t.Fatalf("queue reopened before %v backoff", delay)
+			default:
+			}
+			time.Sleep(time.Nanosecond)
+			synctest.Wait()
+			select {
+			case session = <-queue.sessions:
+			default:
+				t.Fatalf("queue did not reopen after %v", delay)
+			}
+			if task.ctx.Err() != nil || other.ctx.Err() != nil {
+				t.Fatal("failed queue interrupted healthy execution or acquisition")
+			}
+			close(session.jobs)
+			synctest.Wait()
+		}
+		// A delivered job resets this queue's backoff to two seconds.
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		session = <-queue.sessions
+		_, _, recovered, _ := fakeController(t)
+		session.jobs <- recovered
+		recoveredTask := <-jobs
+		close(session.jobs)
+		synctest.Wait()
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		select {
+		case session = <-queue.sessions:
+		default:
+			t.Fatal("successful delivery did not reset backoff")
+		}
+		close(session.jobs)
+		synctest.Wait()
+		close(other.jobs) // Now every queue is closed, including retries.
+		synctest.Wait()
+		if task.ctx.Err() != nil || recoveredTask.ctx.Err() != nil {
+			t.Fatal("all queues closing canceled active jobs")
+		}
+		select {
+		case <-jobs:
+			t.Fatal("controller exited before jobs were drained")
+		default:
+		}
+		for _, pending := range []*acquiredJob{task, recoveredTask} {
+			pending.handle.Finish(context.Background(), provider.Succeeded, nil)
+			pending.handle.Close(context.Background())
+			pending.complete()
+		}
+		if _, ok := <-jobs; ok {
+			t.Fatal("unexpected extra job")
+		}
+		if err := c.Close(); err == nil || !strings.Contains(err.Error(), "all queues closed") {
+			t.Fatalf("controller did not exit after all queues closed: %v", err)
+		}
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		select {
+		case <-queue.sessions:
+			t.Fatal("queue reopened after all queues closed")
+		default:
+		}
+	})
+}
+
+func TestControllerCancellationDuringQueueBackoff(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		queue := &reopeningQueue{sessions: make(chan queueSession, 4)}
+		healthy := &reopeningQueue{sessions: make(chan queueSession, 4)}
+		c := &Controller{forges: []managedForge{
+			{id: "retrying", queue: queue},
+			{id: "healthy", queue: healthy},
+		}}
+		jobs := c.Serve(ctx)
+		session := <-queue.sessions
+		<-healthy.sessions
+		close(session.jobs)
+		synctest.Wait()
+		cancel()
+		if _, ok := <-jobs; ok {
+			t.Fatal("unexpected job during cancellation")
+		}
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		select {
+		case <-queue.sessions:
+			t.Fatal("queue reopened after cancellation")
+		default:
+		}
+	})
+}
+
+func TestControllerCancellationWhileDrainingQueue(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	queue := &reopeningQueue{sessions: make(chan queueSession, 2)}
+	capacity, _, handle, _ := fakeController(t)
+	c := &Controller{forges: []managedForge{{id: "forge", space: "target", queue: queue, demand: capacity}}}
+	jobs := c.Serve(ctx)
+	session := <-queue.sessions
+	session.jobs <- handle
+	task := <-jobs
+	close(session.jobs)
+	<-session.ctx.Done()
+	cancel()
+	if _, ok := <-jobs; ok {
+		t.Fatal("shutdown delivered another job")
+	}
+	if task.ctx.Err() != nil {
+		t.Fatal("acquisition cancellation stopped execution before explicit shutdown")
+	}
+	task.Shutdown()
+	handle.Finish(context.Background(), provider.Canceled, nil)
+	handle.Close(context.Background())
+	task.complete()
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-queue.sessions:
+		t.Fatal("queue reopened during daemon shutdown")
+	default:
+	}
+}
+
 type handoffQueue struct {
 	handle   provider.Handle
 	received chan struct{}
@@ -289,6 +516,7 @@ func (q *handoffQueue) Serve(ctx context.Context, d provider.Demand) <-chan prov
 		defer close(jobs)
 		jobs <- q.handle
 		close(q.received)
+		<-ctx.Done()
 	}()
 	return jobs
 }

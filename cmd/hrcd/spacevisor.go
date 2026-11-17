@@ -62,7 +62,10 @@ func (v *SpaceVisor) Submit(ctx context.Context, job *acquiredJob) {
 			result, err = runJob(ctx, job.handle, host.environment, controllerOptions{Name: job.forge}, time.Minute)
 		}
 		slog.Info("Job completed", "forge", job.forge, "job", job.handle.Job().ID(), "result", result.String(), "err", err)
-		if err != nil {
+		// Execution and supervision errors belong to this job. runJob has
+		// stopped execution, attempted completion and released the handle.
+		// Only a dispatch invariant violation is fatal to the visor.
+		if host == nil {
 			v.recordFailure(fmt.Errorf("forge %q, space %q: %w", job.forge, job.space, err))
 		}
 	}()

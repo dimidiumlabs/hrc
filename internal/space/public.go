@@ -30,10 +30,10 @@ type Status uint16
 const (
 	Idle Status = iota
 	Starting
+	Connecting
 	Ready
 	Destroying
-	Destroyed
-	Failed
+	Broken // Broken makes no guarantees about remaining resources. Cleanup can be retried.
 )
 
 // State is a point-in-time snapshot, not a reservation of capacity.
@@ -49,7 +49,9 @@ type State struct {
 
 // Space owns the environment and scheduler process. Run ensures readiness
 // and submits a provider Job. The returned Run can still be waiting for a slot.
-// Destroy stops all execution. Connections and IPC are implementation details.
+// Destroy stops all execution and returns the space to Idle on success, or
+// leaves it Broken on error. Cleanup can be retried from Broken, and an Idle
+// space can be started again. Connections and IPC are implementation details.
 type Space interface {
 	Type() string
 	Name() string

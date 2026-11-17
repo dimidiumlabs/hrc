@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"sync"
@@ -88,7 +89,14 @@ func (s *executionSlot) Run(_ context.Context, job provider.Job) (provider.Run, 
 	j := job.(*testJob)
 	run := &testRun{done: make(chan error, 1), ready: make(chan struct{}), data: j.payload}
 	s.harness.started <- s.name
-	if j.request.Mode != "wait" {
+	if j.request.Mode == "crash" {
+		run.once.Do(func() {
+			run.result = provider.Unknown
+			close(run.ready)
+			run.done <- provider.ErrUnknown
+			close(run.done)
+		})
+	} else if j.request.Mode != "wait" {
 		run.finish(provider.Succeeded)
 	}
 	return run, nil
@@ -106,7 +114,7 @@ func (s *executionSlot) Destroy(context.Context) error {
 }
 
 type schedulerHarness struct {
-	client             *space.Client
+	client             *space.Daemon
 	done               chan error
 	created, destroyed atomic.Int32
 	started            chan string
@@ -141,7 +149,7 @@ func newSchedulerHarness(t *testing.T, reuse bool) *schedulerHarness {
 		})
 	}()
 	var err error
-	h.client, err = space.NewClient(t.Context(), client, config)
+	h.client, err = space.NewDaemon(t.Context(), client, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,6 +211,31 @@ func TestSchedulerIPCStateAndQueuedCancellation(t *testing.T) {
 	}
 }
 
+func TestSchedulerDestroysCrashedSlot(t *testing.T) {
+	for _, reuse := range []bool{false, true} {
+		t.Run(fmt.Sprint("reuse=", reuse), func(t *testing.T) {
+			h := newSchedulerHarness(t, reuse)
+			failed := h.start(t, []byte(`{"Mode":"crash"}`))
+			<-h.started
+			if _, _, err := waitRun(failed); !errors.Is(err, provider.ErrUnknown) {
+				t.Fatalf("Worker failure lost: %v", err)
+			}
+			h.awaitState(t, space.State{Capacity: 1})
+			if h.created.Load() != 1 || h.destroyed.Load() != 1 {
+				t.Fatalf("failed slot was not destroyed: created=%d destroyed=%d", h.created.Load(), h.destroyed.Load())
+			}
+			next := h.start(t, []byte(`{"Mode":"success"}`))
+			<-h.started
+			if result, _, err := waitRun(next); err != nil || result != provider.Succeeded {
+				t.Fatalf("space failed with its slot: %v %v", result, err)
+			}
+			if h.created.Load() != 2 {
+				t.Fatal("failed slot was reused")
+			}
+		})
+	}
+}
+
 func TestSchedulerIPCPayloadAndReuse(t *testing.T) {
 	for _, reuse := range []bool{false, true} {
 		h := newSchedulerHarness(t, reuse)
@@ -256,15 +289,40 @@ func TestSchedulerIPCRejectsJobsBeforeCreatingSlots(t *testing.T) {
 }
 
 func TestSchedulerIPCDisconnectStopsExecution(t *testing.T) {
-	h := newSchedulerHarness(t, false)
-	run := h.start(t, []byte(`{"Mode":"wait"}`))
-	<-h.started
-	h.close()
-	if _, _, err := waitRun(run); err == nil {
-		t.Fatal("disconnected run reported success")
+	for _, reuse := range []bool{false, true} {
+		t.Run(fmt.Sprint("reuse=", reuse), func(t *testing.T) {
+			h := newSchedulerHarness(t, reuse)
+			active := h.start(t, []byte(`{"Mode":"wait"}`))
+			<-h.started
+			queued := h.start(t, []byte(`{"Mode":"wait"}`))
+			h.awaitState(t, space.State{Capacity: 1, Slots: 1, BusySlots: 1, Running: 1, Queued: 1})
+			h.close()
+			for _, run := range []provider.Run{active, queued} {
+				if _, _, err := waitRun(run); !errors.Is(err, space.ErrUnavailable) {
+					t.Fatalf("disconnected Run: %v", err)
+				}
+			}
+			if h.created.Load() != 1 || h.destroyed.Load() != 1 {
+				t.Fatalf("disconnect cleanup: created=%d destroyed=%d", h.created.Load(), h.destroyed.Load())
+			}
+		})
 	}
+}
+
+func TestSchedulerIPCDisconnectDestroysIdleSlots(t *testing.T) {
+	h := newSchedulerHarness(t, true)
+	run := h.start(t, []byte(`{"Mode":"success"}`))
+	<-h.started
+	if result, _, err := waitRun(run); err != nil || result != provider.Succeeded {
+		t.Fatalf("initial Run: %v %v", result, err)
+	}
+	h.awaitState(t, space.State{Capacity: 1, Slots: 1})
+	if h.destroyed.Load() != 0 {
+		t.Fatal("reusable idle slot was already destroyed")
+	}
+	h.close()
 	if h.destroyed.Load() != 1 {
-		t.Fatal("active slot survived disconnect")
+		t.Fatal("idle slot survived disconnect")
 	}
 }
 

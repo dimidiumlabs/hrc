@@ -51,6 +51,26 @@ func (q *waitingQueue) Serve(ctx context.Context, _ provider.Demand) <-chan prov
 	return jobs
 }
 
+// openQueue delivers one job and keeps its stream open until acquisition stops.
+// Unlike fakeQueue's finite stream, this does not trigger queue reopening.
+type openQueue struct{ job *fakeJob }
+
+func (q *openQueue) Serve(ctx context.Context, demand provider.Demand) <-chan provider.Handle {
+	jobs := make(chan provider.Handle)
+	go func() {
+		defer close(jobs)
+		for handle := range (&fakeQueue{q.job}).Serve(ctx, demand) {
+			select {
+			case jobs <- handle:
+			case <-ctx.Done():
+				finishUnstarted(ctx, handle, provider.Canceled)
+			}
+		}
+		<-ctx.Done()
+	}()
+	return jobs
+}
+
 type closingSpace struct {
 	space.Space
 	destroy func() error
@@ -62,7 +82,7 @@ func TestControllerShutdownThenSpacevisorClose(t *testing.T) {
 	for _, fail := range []bool{false, true} {
 		name := "cancellation"
 		if fail {
-			name = "controller-error"
+			name = "job-error"
 		}
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
@@ -97,8 +117,12 @@ func TestControllerShutdownThenSpacevisorClose(t *testing.T) {
 			}
 			c := &Controller{forges: []managedForge{{id: "waiting", queue: waiting, space: "shared", demand: capacity}}}
 			if fail {
-				environment.prepare = func(context.Context) error { <-waiting.ready; return executionErr }
-				c.forges = append(c.forges, managedForge{id: "failing", queue: &fakeQueue{job}, space: "shared", demand: capacity})
+				environment.prepare = func(context.Context) error {
+					<-waiting.ready
+					cancel()
+					return executionErr
+				}
+				c.forges = append(c.forges, managedForge{id: "failing", queue: &openQueue{job}, space: "shared", demand: capacity})
 			} else {
 				go func() { <-waiting.ready; cancel() }()
 			}
@@ -121,9 +145,14 @@ func TestControllerShutdownThenSpacevisorClose(t *testing.T) {
 			}
 			err = errors.Join(err, v.Close())
 			if fail {
-				if !errors.Is(err, executionErr) || !errors.Is(err, cleanupErr) ||
-					!strings.Contains(err.Error(), "failing") || !strings.Contains(err.Error(), "shared") {
-					t.Fatalf("lost controller or cleanup error: %v", err)
+				if errors.Is(err, executionErr) || !errors.Is(err, cleanupErr) ||
+					!strings.Contains(err.Error(), "shared") {
+					t.Fatalf("job error escaped isolation or lost space cleanup error: %v", err)
+				}
+				select {
+				case <-v.Failed():
+					t.Fatal("job error stopped the visor")
+				default:
 				}
 			} else if err != nil {
 				t.Fatalf("graceful shutdown: %v", err)
@@ -155,11 +184,16 @@ func TestSpacevisorDrainsAcceptedJob(t *testing.T) {
 		}},
 	}
 	v := &SpaceVisor{spaces: map[string]*managedSpace{"target": host}, failed: make(chan struct{})}
-	c := &Controller{forges: []managedForge{{id: "forge", space: "target", queue: &fakeQueue{handle}, demand: capacity}}}
-	for task := range c.Serve(t.Context()) {
-		v.Submit(t.Context(), task)
-	}
+	c := &Controller{forges: []managedForge{{id: "forge", space: "target", queue: &openQueue{handle}, demand: capacity}}}
+	acquisition, stop := context.WithCancel(t.Context())
+	defer stop()
+	jobs := c.Serve(acquisition)
+	v.Submit(t.Context(), <-jobs)
 	<-started
+	stop()
+	for range jobs {
+		t.Fatal("unexpected extra job")
+	}
 	done := make(chan error, 1)
 	go func() { done <- c.Close() }()
 	select {
@@ -182,6 +216,114 @@ func TestSpacevisorDrainsAcceptedJob(t *testing.T) {
 	}
 	if !destroyed {
 		t.Fatal("space was not closed")
+	}
+}
+
+func TestSpacevisorIsolatesJobErrors(t *testing.T) {
+	for _, phase := range []string{"submission", "execution", "worker", "listener", "lease", "finish", "close"} {
+		t.Run(phase, func(t *testing.T) {
+			capacity, environment, handle, calls := fakeController(t)
+			spareCapacity, spare, spareHandle, _ := fakeController(t)
+			expected := provider.Failed
+			switch phase {
+			case "submission":
+				environment.prepare = func(context.Context) error { return space.ErrUnavailable }
+			case "execution", "worker":
+				failure := space.ErrUnavailable
+				if phase == "worker" {
+					failure = provider.ErrUnknown
+				}
+				handle.local.finished.Do(func() {
+					handle.local.result = provider.Unknown
+					close(handle.local.ready)
+					handle.local.done <- failure
+					close(handle.local.done)
+				})
+			case "listener", "lease":
+				expected = provider.Canceled
+				handle.onRun = func() {
+					event := provider.Event{Type: provider.NetworkError, Err: provider.ErrUnavailable}
+					if phase == "lease" {
+						event = provider.Event{Type: provider.LeaseLost, Err: provider.ErrLeaseLost}
+					}
+					handle.events <- event
+				}
+			case "finish", "close":
+				handle.local.finish(provider.Failed)
+				if phase == "finish" {
+					handle.finishErr = provider.ErrUnavailable
+				} else {
+					handle.closeErr = provider.ErrUnknown
+				}
+			}
+			spareHandle.local.finish(provider.Succeeded)
+			v := &SpaceVisor{
+				spaces: map[string]*managedSpace{
+					"broken": {environment: environment, demand: capacity},
+					"spare":  {environment: spare, demand: spareCapacity},
+				},
+				failed: make(chan struct{}),
+			}
+			c := &Controller{forges: []managedForge{
+				{id: "forge", space: "broken", queue: &openQueue{handle}, demand: capacity},
+				{id: "other", space: "spare", queue: &openQueue{spareHandle}, demand: spareCapacity},
+			}}
+			acquisition, stop := context.WithCancel(t.Context())
+			defer stop()
+			jobs := c.Serve(acquisition)
+			for range 2 {
+				v.Submit(t.Context(), <-jobs)
+			}
+			stop()
+			for range jobs {
+				t.Fatal("unexpected extra job")
+			}
+			if err := c.Close(); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-v.Failed():
+				t.Fatal("lost space stopped the controller")
+			default:
+			}
+			if handle.result != expected || spareHandle.result != provider.Succeeded {
+				t.Fatalf("results: failed=%v spare=%v", handle.result, spareHandle.result)
+			}
+			if !slices.Contains(*calls, "finish") || (*calls)[len(*calls)-1] != "job-close" {
+				t.Fatalf("lost job was not completed and closed: %v", *calls)
+			}
+			if available, _ := capacity.State(); available != 1 {
+				t.Fatalf("lost job reservation leaked: %d", available)
+			}
+			if phase == "listener" || phase == "lease" {
+				if !slices.Contains(*calls, "cancel") || !slices.Contains(*calls, "run-close") {
+					t.Fatalf("listener failure did not stop Worker: %v", *calls)
+				}
+			}
+			// The same space must accept another job after the failed job
+			// has released its reservation and finished all cleanup.
+			_, _, next, _ := fakeController(t)
+			environment.job = next
+			environment.prepare = nil
+			next.local.finish(provider.Succeeded)
+			nextController := &Controller{forges: []managedForge{
+				{id: "forge", space: "broken", queue: &openQueue{next}, demand: capacity},
+			}}
+			nextAcquisition, stopNext := context.WithCancel(t.Context())
+			defer stopNext()
+			nextJobs := nextController.Serve(nextAcquisition)
+			v.Submit(t.Context(), <-nextJobs)
+			stopNext()
+			for range nextJobs {
+				t.Fatal("unexpected extra job")
+			}
+			if err := nextController.Close(); err != nil || next.result != provider.Succeeded {
+				t.Fatalf("subsequent job: %v %v", next.result, err)
+			}
+			if err := v.Close(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
@@ -209,12 +351,14 @@ func TestControllerExplicitDrain(t *testing.T) {
 				spaces: map[string]*managedSpace{"target": {environment: environment, demand: capacity}},
 				failed: make(chan struct{}),
 			}
-			c := &Controller{forges: []managedForge{{id: "forge", space: "target", queue: &fakeQueue{handle}, demand: capacity}}}
-			for task := range c.Serve(acquisition) {
-				v.Submit(acquisition, task)
-			}
+			c := &Controller{forges: []managedForge{{id: "forge", space: "target", queue: &openQueue{handle}, demand: capacity}}}
+			jobs := c.Serve(acquisition)
+			v.Submit(acquisition, <-jobs)
 			<-started
 			stopAcquisition()
+			for range jobs {
+				t.Fatal("unexpected extra job")
+			}
 			tasks := c.Jobs()
 			if len(tasks) != 1 {
 				t.Fatalf("active tasks: %d", len(tasks))

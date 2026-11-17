@@ -116,8 +116,10 @@ type Handle interface {
 // unbuffered stream transfers Handle ownership to the caller. Canceling the
 // context stops acquisition and closes the stream after cleaning up undelivered
 // Handles. Delivered Handles remain valid and must be finished and closed by
-// the caller. Transient acquisition errors are retried by the provider;
-// failures of delivered Jobs are reported through Handle.Events.
+// the caller. The stream may also close without cancellation when the queue
+// has no more jobs or cannot continue. This does not invalidate delivered
+// Handles. The caller owns queue retries and may invoke Serve again after the
+// stream closes; failures of delivered Jobs are reported through Handle.Events.
 type Queue interface {
 	Serve(context.Context, Demand) <-chan Handle
 }
