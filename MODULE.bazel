@@ -19,7 +19,7 @@ bazel_dep(name = "bazel_skylib", version = "1.9.2")
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
 
 # renovate: datasource=golang-version depName=go
-go_sdk.download(version = "1.27.3")
+go_sdk.download(version = "1.27.4")
 
 go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
 go_deps.from_file(go_mod = "//:go.mod")
@@ -82,7 +82,7 @@ http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_
 
 # Native esbuild CLI: no npm installation or system Node.js required.
 # renovate: datasource=npm depName=esbuild
-ESBUILD_VERSION = "0.25.12"
+ESBUILD_VERSION = "0.28.2"
 
 ESBUILD_PLATFORMS = {
     "darwin_arm64": "2e0d011f852e45046ca5c107db54cfc56338f77aca49d227a063696d958451d7",
