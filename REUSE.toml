@@ -18,9 +18,10 @@ path = [
   "tools/site/assets/**",
 
   # any lock files
+  ".github/workflows/actions.lock",
+  "MODULE.bazel.lock",
   "go.mod",
   "go.sum",
-  "MODULE.bazel.lock",
   "tools/requirements.txt",
   "tools/rules_ansible/requirements.txt",
 ]

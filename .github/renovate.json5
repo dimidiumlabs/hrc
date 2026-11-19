@@ -9,7 +9,14 @@
 
   automerge: false,
   dependencyDashboard: true,
+
+  // GitHub Actions in actions.lock use native lockfile management; keep digest
+  // pinning enabled for container images and actions outside the lockfile.
   pinDigests: true,
+
+  // Use the same reviewed lockfile generator for local and Renovate updates.
+  // Renovate invokes it natively once per branch; no postUpgradeTasks needed.
+  constraints: { ghActionsLock: "v0.5.0" },
 
   // Allow time for upstream problems to surface before proposing updates.
   minimumReleaseAge: "7 days",
