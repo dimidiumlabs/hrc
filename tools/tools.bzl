@@ -7,7 +7,7 @@
 BUILDIFIER_ARGS = ["-buildifier_disable=callsort"]
 
 def _buildifier_impl(ctx):
-    tool = ctx.toolchains["@buildifier_prebuilt//buildifier:toolchain"]._tool
+    tool = ctx.toolchains["@buildifier_prebuilt//buildifier:toolchain"].tool
     executable = ctx.actions.declare_file(ctx.label.name)
     if ctx.attr.lint_only:
         ctx.actions.expand_template(
