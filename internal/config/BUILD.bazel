@@ -15,7 +15,7 @@ go_library(
     visibility = ["//:__subpackages__"],
     x_defs = {"dimidiumlabs.io/hrc/internal/config.Version": "{STABLE_HRC_VERSION}"},
     deps = [
-        "@in_yaml_go_yaml_v3//:yaml",
+        "@in_yaml_go_yaml_v4//:yaml",
     ],
 )
 
