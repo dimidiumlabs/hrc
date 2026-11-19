@@ -8,11 +8,38 @@ Notable changes to hrc, in the format of
 `Unreleased`_
 -------------
 
+Added
+~~~~~
+
+- YAML configuration support alongside JSON.
+- Versioned documentation site, including historical release documentation,
+  an installation and operation manual, and the package signing key fingerprint.
+
 Changed
 ~~~~~~~
 
+- Replace the previous ``groups`` configuration with named ``spaces``, ``slots``
+  and ``forges``. Spaces define resource budgets, slot pools define per-slot
+  quotas and workspace lifetime, and forges connect GitHub scale sets to pools.
+  Existing configurations must be migrated: ``id`` becomes ``instanceId``,
+  ``reuseDirs`` is replaced by the inverse ``slots[].ephemeral``, and directory
+  settings move to ``directories.runtime``, ``directories.spaces`` and
+  ``directories.logs``. Leave host capacity unassigned to replace ``reserve``.
 - Rename the controller executable to ``hrcd`` and the GitHub Worker to
-  ``hrcw-github``. Release archives and service names remain ``hrc``.
+  ``hrcw-github``. Run each host space in a separate ``hrcs`` scheduler process,
+  communicating with the controller over local gRPC. Update service definitions
+  and ensure all three executables are on the service PATH when upgrading.
+  Release archives and service names remain ``hrc``.
+- Move the repository to the ``dimidiumlabs`` GitHub organization.
+- Update Bazel to 9.3.2 and refresh Go, Python and CI dependencies.
+
+Fixed
+~~~~~
+
+- Handle child processes that exit during Windows process-group cleanup without
+  reporting spurious cleanup failures.
+- Improve propagation of slot and space failures and handling of jobs that
+  cannot be started.
 
 `0.4.0`_ - 2026-11-09
 ---------------------
