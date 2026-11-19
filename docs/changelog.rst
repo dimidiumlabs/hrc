@@ -134,9 +134,9 @@ Builds for ``amd64`` and ``arm64`` on Linux, macOS and Windows, bundling GitHub
 Actions runner 2.338.0, with checksums in ``SHASUMS256.txt`` and build provenance
 attestations.
 
-.. _Unreleased: https://github.com/mrdimidium/hrc/compare/release-0.4.0...HEAD
-.. _0.4.0: https://github.com/mrdimidium/hrc/compare/release-0.3.0...release-0.4.0
-.. _0.3.0: https://github.com/mrdimidium/hrc/compare/release-0.2.0...release-0.3.0
-.. _0.2.0: https://github.com/mrdimidium/hrc/compare/release-0.1.1...release-0.2.0
-.. _0.1.1: https://github.com/mrdimidium/hrc/compare/release-0.1.0...release-0.1.1
-.. _0.1.0: https://github.com/mrdimidium/hrc/releases/tag/release-0.1.0
+.. _Unreleased: https://github.com/dimidiumlabs/hrc/compare/release-0.4.0...HEAD
+.. _0.4.0: https://github.com/dimidiumlabs/hrc/compare/release-0.3.0...release-0.4.0
+.. _0.3.0: https://github.com/dimidiumlabs/hrc/compare/release-0.2.0...release-0.3.0
+.. _0.2.0: https://github.com/dimidiumlabs/hrc/compare/release-0.1.1...release-0.2.0
+.. _0.1.1: https://github.com/dimidiumlabs/hrc/compare/release-0.1.0...release-0.1.1
+.. _0.1.0: https://github.com/dimidiumlabs/hrc/releases/tag/release-0.1.0

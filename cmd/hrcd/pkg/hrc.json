@@ -27,7 +27,7 @@
     {
       "id": "hrc-builds",
       "type": "github",
-      "url": "https://github.com/mrdimidium/hrc",
+      "url": "https://github.com/dimidiumlabs/hrc",
       "group": "default",
       "labels": [
         "linux",

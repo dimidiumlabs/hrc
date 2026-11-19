@@ -250,7 +250,7 @@ With `GitHub CLI <https://cli.github.com/>`__, in either shell:
 
 .. code-block:: sh
 
-   gh attestation verify "$archive" -R mrdimidium/hrc
+   gh attestation verify "$archive" -R dimidiumlabs/hrc
 
 
 **Extract the archive**

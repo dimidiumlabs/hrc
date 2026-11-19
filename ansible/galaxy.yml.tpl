@@ -7,7 +7,7 @@ namespace: dimidiumlabs
 version: '@VERSION@'
 authors: [Nikolay Govorov]
 license: [BSD-3-Clause, MIT]
-repository: https://github.com/mrdimidium/hrc
+repository: https://github.com/dimidiumlabs/hrc
 
 readme: README.md
 description: Install and remove Hosted Runner Controller

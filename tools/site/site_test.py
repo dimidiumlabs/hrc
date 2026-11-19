@@ -194,7 +194,7 @@ class SiteTest(unittest.TestCase):
                     self.assertIn("Documentation: CC BY 4.0", footer)
                     self.assertIn("main-content", page.ids)
                     self.assertTrue("".join(page.title_text).endswith(" · Hosted Runner Controller"))
-                    self.assertIn("https://github.com/mrdimidium/hrc", page.header_links)
+                    self.assertIn("https://github.com/dimidiumlabs/hrc", page.header_links)
                     self.assertEqual(len(page.header_links), 2)
                     self.assertNotIn("site-sidebar__title", html)
                     self.assertEqual({
