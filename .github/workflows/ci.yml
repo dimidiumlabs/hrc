@@ -55,7 +55,7 @@ jobs:
           printf 'machine github.com\nlogin x-access-token\npassword %s\n' "$GH_DOWNLOAD_TOKEN" > "$netrc"
           printf 'NETRC=%s\n' "$netrc" >> "$GITHUB_ENV"
 
-      - uses: bazel-contrib/setup-bazel@104e3eea9447cdaa4b00d0fb46191a3985d26ab3 # 0.19.1
+      - uses: bazel-contrib/setup-bazel@f34d6a05eae3c24acab7fa54587492daeaeffdab # 0.19.2
         with:
           bazelisk-version: '1.x'
 
@@ -141,7 +141,7 @@ jobs:
           printf 'machine github.com\nlogin x-access-token\npassword %s\n' "$GH_DOWNLOAD_TOKEN" > "$netrc"
           printf 'NETRC=%s\n' "$netrc" >> "$GITHUB_ENV"
 
-      - uses: bazel-contrib/setup-bazel@104e3eea9447cdaa4b00d0fb46191a3985d26ab3 # 0.19.1
+      - uses: bazel-contrib/setup-bazel@f34d6a05eae3c24acab7fa54587492daeaeffdab # 0.19.2
         with:
           bazelisk-version: '1.x'
       - name: Verify and publish release
