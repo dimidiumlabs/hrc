@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // Load selects the syntax by extension and applies the same JSON field and type
