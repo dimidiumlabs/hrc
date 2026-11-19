@@ -40,7 +40,7 @@ html_permalinks_icon = "Permalink"
 
 
 def prepare_source(app, docname, source, included_docname=None):
-    """Map repository-local RST links to their HTML or plain-text pages."""
+    """Substitute the release version and map RST links to published pages."""
 
     repository = Path(__file__).resolve().parents[2]
     document_directory = (repository / "docs" / (included_docname or docname)).parent
@@ -67,6 +67,7 @@ def prepare_source(app, docname, source, included_docname=None):
 
         return "<" + urlunsplit(("", "", path, url.query, fragment)) + ">`__"
 
+    source[0] = source[0].replace("@HRC_VERSION@", app.config.release)
     source[0] = re.sub(r"<([^<>\s]+)>`__", rewrite_link, source[0])
 
 

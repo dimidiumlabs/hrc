@@ -24,14 +24,13 @@ Ansible collection
 The ``dimidiumlabs.hrc`` collection provides two roles: ``install`` and ``remove``.
 Each collection archive pins the filenames and SHA-256 hashes of one hrc
 release's binaries. On the Ansible controller (Linux or macOS), use a fresh
-working directory with ``curl`` and ``jq`` installed to download and install the
-collection from the latest release:
+working directory with ``curl`` installed to download and install the collection
+for this version of hrc:
 
 .. code-block:: sh
 
-   version=$(curl -fsL https://pkg.dimidiumlabs.io/hrc/index.json | jq -er '.channels.stable')
-   release="https://pkg.dimidiumlabs.io/hrc/builds/$version"
-   archive="ansible-collection-$version.tar.gz"
+   release="https://pkg.dimidiumlabs.io/hrc/builds/@HRC_VERSION@"
+   archive="ansible-collection-@HRC_VERSION@.tar.gz"
 
    curl -fLO "$release/$archive" -O "$release/SHASUMS256"
    case $(uname -s) in
@@ -39,8 +38,7 @@ collection from the latest release:
        *) sha256sum -c --ignore-missing SHASUMS256 ;;
    esac
 
-Stop if download or checksum verification fails. To install a specific release,
-set ``version`` to its version number instead of reading it from ``index.json``.
+Stop if download or checksum verification fails.
 Verify the `checksum signature <#verify-the-checksum-signature>`__ before
 installing the collection; the embedded checksums verify the binaries, not
 the collection itself. After verification, install the collection:
@@ -173,9 +171,8 @@ Download
       $machine = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
       $arch = switch ($machine) { AMD64 { 'amd64' } ARM64 { 'arm64' } }
 
-      $version = (Invoke-RestMethod 'https://pkg.dimidiumlabs.io/hrc/index.json').channels.stable
-      $release = "https://pkg.dimidiumlabs.io/hrc/builds/$version"
-      $archive = "hrc-$arch-windows-$version.tar.gz"
+      $release = "https://pkg.dimidiumlabs.io/hrc/builds/@HRC_VERSION@"
+      $archive = "hrc-$arch-windows-@HRC_VERSION@.tar.gz"
       Invoke-WebRequest "$release/SHASUMS256" -OutFile SHASUMS256
       Invoke-WebRequest "$release/$archive" -OutFile $archive
       Get-FileHash $archive -Algorithm SHA256
@@ -185,28 +182,26 @@ Download
    macOS
    ~~~~~
 
-   Requires ``curl`` and ``jq``:
+   Requires ``curl``:
 
    .. code-block:: sh
 
       case $(uname -m) in x86_64) arch=amd64 ;; arm64) arch=arm64 ;; esac
-      version=$(curl -fsL https://pkg.dimidiumlabs.io/hrc/index.json | jq -er '.channels.stable')
-      release="https://pkg.dimidiumlabs.io/hrc/builds/$version"
-      archive="hrc-$arch-darwin-$version.tar.gz"
+      release="https://pkg.dimidiumlabs.io/hrc/builds/@HRC_VERSION@"
+      archive="hrc-$arch-darwin-@HRC_VERSION@.tar.gz"
       curl -fLO "$release/$archive" -O "$release/SHASUMS256"
       shasum -a 256 -c --ignore-missing SHASUMS256
 
    Linux
    ~~~~~
 
-   Requires ``curl`` and ``jq``:
+   Requires ``curl``:
 
    .. code-block:: sh
 
       case $(uname -m) in x86_64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; esac
-      version=$(curl -fsL https://pkg.dimidiumlabs.io/hrc/index.json | jq -er '.channels.stable')
-      release="https://pkg.dimidiumlabs.io/hrc/builds/$version"
-      archive="hrc-$arch-linux-$version.tar.gz"
+      release="https://pkg.dimidiumlabs.io/hrc/builds/@HRC_VERSION@"
+      archive="hrc-$arch-linux-@HRC_VERSION@.tar.gz"
       curl -fLO "$release/$archive" -O "$release/SHASUMS256"
       sha256sum -c --ignore-missing SHASUMS256
 
