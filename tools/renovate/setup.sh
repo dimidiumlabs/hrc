@@ -9,7 +9,7 @@ set -euo pipefail
   exit 1
 }
 
-command -v bazel gh curl jq >/dev/null
+command -v bazel gh gh-actions-lock jq >/dev/null
 
 runtime=$(realpath -m "${1:?Usage: setup.sh INSTALL_DIR}")
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
@@ -17,14 +17,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 source_dir="$PWD/tools/renovate"
 mkdir -p "$runtime/bin" "$runtime/extensions/gh-actions-lock" "$runtime/npm"
 
-# Only the extension is downloaded here; gh and Bazel are supplied by CI.
-version=v0.5.0
-sha=be89392e3c4065a106f2d3f7926eaaee58fd82d4b6aaf6ba1ec3642a3ef7fbab
+# Register the mise-installed binary locally; no gh extension downloads.
 extension="$runtime/extensions/gh-actions-lock/gh-actions-lock"
-
-curl -fsSL --retry 2 "https://github.com/github/gh-actions-lock/releases/download/$version/linux-amd64" -o "$extension"
-printf '%s  %s\n' "$sha" "$extension" | sha256sum --check
-chmod +x "$extension"
+ln -sfn "$(command -v gh-actions-lock)" "$extension"
 
 export GH_CONFIG_DIR="$runtime/gh-config" XDG_DATA_HOME="$runtime/share"
 registration="$XDG_DATA_HOME/gh/extensions/gh-actions-lock"

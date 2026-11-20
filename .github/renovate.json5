@@ -25,7 +25,7 @@
   },
 
   enabledManagers: [
-    "gomod", "pip_requirements", "npm",
+    "gomod", "pip_requirements", "npm", "mise",
     "github-actions", "bazelisk", "bazel-module", "custom.regex",
   ],
   separateMajorMinor: true,
@@ -36,12 +36,11 @@
   customManagers: [
     {
       customType: "regex",
-      description: "Update gh-actions-lock and its binary SHA-256",
-      depNameTemplate: "github/gh-actions-lock",
+      description: "Update the mise bootstrap binary and its SHA-256 pin",
       datasourceTemplate: "github-release-attachments",
-      managerFilePatterns: ["/^tools/renovate/setup\\.sh$/"],
+      managerFilePatterns: ["/^\\.github/workflows/.*\\.yml$/"],
       matchStrings: [
-        "version=(?<currentValue>v[0-9.]+)\\s+sha=(?<currentDigest>[a-f0-9]{64})",
+        "# renovate: depName=(?<depName>[^\\s]+)\\s+version: (?<currentValue>v[0-9.]+)\\s+sha256: (?<currentDigest>[a-f0-9]{64})",
       ],
     },
     {

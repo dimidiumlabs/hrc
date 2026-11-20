@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+# CI tools only. Project runtimes and build toolchains remain managed by Bazel.
+[tools]
+jactionlint = "2.6.0"
+"github:github/gh-actions-lock" = { version = "0.5.0", asset_pattern = "linux-amd64", bin = "gh-actions-lock" }

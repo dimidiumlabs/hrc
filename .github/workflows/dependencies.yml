@@ -14,10 +14,13 @@ on:
       - .github/workflows/dependencies.yml
       - .github/renovate.json5
       - tools/renovate/**
+      - tools/mise.toml
+      - tools/mise.lock
 
   # Refresh the dashboard after a Renovate update is merged. Run the trusted
   # base-branch workflow only; never check out or execute the PR's code.
-  pull_request_target:
+  # Closed/merged same-repo bot PRs only; the job executes the trusted default branch.
+  pull_request_target: # jactionlint ignore=dangerous-triggers
     types: [closed]
 
   # Ticking a dashboard checkbox edits the issue body; see the job guard.
@@ -72,9 +75,21 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
+      - uses: $/.github/actions/github-download-auth
       - uses: bazel-contrib/setup-bazel@0.19.2
         with:
           bazelisk-version: '1.x'
+
+      # Install the lock generator and mise CLI, but not the CI linters.
+      - uses: jdx/mise-action@v5.2.8
+        with:
+          # renovate: depName=jdx/mise
+          version: v2026.10.17
+          sha256: fe6dd17e68e09682b31d2e7bb7bb755d22636ac1af5d94621e300f2ca9e9fe8a
+          working_directory: tools
+          install_args: --locked github:github/gh-actions-lock
+          cache: false
+          add_shims_to_path: false
 
       - name: Find available Node runtime updates
         id: node

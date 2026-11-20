@@ -5,7 +5,7 @@
 # Resolve the root VERSION and Git metadata into stable Bazel stamp values.
 set -eu
 
-ROOT=$(CDPATH= cd -P "$(dirname "$0")/.." && pwd)
+ROOT=$(CDPATH='' cd -P "$(dirname "$0")/.." && pwd)
 
 fail() {
     printf '%s\n' "$*" >&2

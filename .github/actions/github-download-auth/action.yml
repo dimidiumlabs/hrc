@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: Authenticate GitHub downloads
+description: Provide a temporary NETRC for GitHub downloads and remove it after the job
+inputs:
+  token:
+    description: GitHub token used for downloads
+    required: true
+    default: ${{ github.token }}
+runs:
+  using: node24
+  main: main.mjs
+  post: post.mjs
+  post-if: always()

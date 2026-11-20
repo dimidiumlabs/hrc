@@ -23,7 +23,7 @@ publish() {
 }
 
 notes() {
-    local section=$1 required=$2 line previous= changes= generated commits= in_section=false
+    local section=$1 required=$2 line previous='' changes='' generated commits='' in_section=false
     [[ -r docs/changelog.rst ]] || fail 'Could not read docs/changelog.rst'
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$in_section" == false ]]; then
@@ -114,7 +114,7 @@ artifacts=()
 for name in "${names[@]}"; do
     digest=$(sha256sum "$directory/$name")
     size=$(wc -c < "$directory/$name")
-    os= arch= kind=archive
+    os='' arch='' kind=archive
     case "$name" in
         hrc-docs-*) kind=documentation ;;
         hrc-*)
@@ -161,11 +161,10 @@ esac
 (
     signing_home=$(mktemp -d)
     chmod 0700 "$signing_home"
-    cleanup_signing() {
+    trap '
         gpgconf --homedir "$signing_home" --kill gpg-agent || true
         rm -rf -- "$signing_home"
-    }
-    trap cleanup_signing EXIT
+    ' EXIT
     private_key=$signing_private_key
     passphrase=$signing_passphrase
     unset signing_private_key signing_passphrase GH_TOKEN
