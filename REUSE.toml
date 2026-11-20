@@ -22,6 +22,7 @@ path = [
   "MODULE.bazel.lock",
   "go.mod",
   "go.sum",
+  "tools/renovate/*.json",
   "tools/requirements.txt",
   "tools/rules_ansible/requirements.txt",
 ]

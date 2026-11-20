@@ -1,0 +1,9 @@
+{
+  "name": "@dimidiumlabs/renovate",
+  "private": true,
+  "version": "0.0.0",
+  "license": "BSD-3-Clause",
+  "dependencies": {
+    "renovate": "44.254.1"
+  }
+}

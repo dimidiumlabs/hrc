@@ -8,15 +8,11 @@
   timezone: "Etc/UTC",
 
   automerge: false,
-  dependencyDashboard: true,
+  dependencyDashboard: { enabled: true },
 
   // GitHub Actions in actions.lock use native lockfile management; keep digest
   // pinning enabled for container images and actions outside the lockfile.
   pinDigests: true,
-
-  // Use the same reviewed lockfile generator for local and Renovate updates.
-  // Renovate invokes it natively once per branch; no postUpgradeTasks needed.
-  constraints: { ghActionsLock: "v0.5.0" },
 
   // Allow time for upstream problems to surface before proposing updates.
   minimumReleaseAge: "7 days",
@@ -29,7 +25,7 @@
   },
 
   enabledManagers: [
-    "gomod", "pip_requirements",
+    "gomod", "pip_requirements", "npm",
     "github-actions", "bazelisk", "bazel-module", "custom.regex",
   ],
   separateMajorMinor: true,
@@ -38,6 +34,16 @@
   pip_requirements: { managerFilePatterns: ["/^tools/requirements\\.in$/"] },
 
   customManagers: [
+    {
+      customType: "regex",
+      description: "Update gh-actions-lock and its binary SHA-256",
+      depNameTemplate: "github/gh-actions-lock",
+      datasourceTemplate: "github-release-attachments",
+      managerFilePatterns: ["/^tools/renovate/setup\\.sh$/"],
+      matchStrings: [
+        "version=(?<currentValue>v[0-9.]+)\\s+sha=(?<currentDigest>[a-f0-9]{64})",
+      ],
+    },
     {
       customType: "regex",
       description: "Prepare upstream Worker updates for manual compatibility review",
@@ -105,6 +111,19 @@
   },
   packageRules: [
     {
+      matchManagers: ["npm"],
+      matchFileNames: ["tools/renovate/package.json"],
+      rangeStrategy: "pin",
+      ignoreScripts: true,
+    },
+    {
+      // Runtime Node comes from Bazel, not npm engines.
+      matchManagers: ["npm"],
+      matchDepTypes: ["engines"],
+      enabled: false,
+    },
+
+    {
       groupName: "go modules",
       matchManagers: ["gomod"],
       matchUpdateTypes: ["minor", "patch", "digest", "pin", "pinDigest"],
@@ -149,8 +168,7 @@
       matchFileNames: ["tools/requirements.in"],
       skipArtifactsUpdate: true,
       postUpgradeTasks: {
-        commands: [".github/renovate-cmd python-lock", ".github/renovate-cmd bazel-lock"],
-        installTools: { bazelisk: {} },
+        commands: ["tools/renovate/cmd.sh python-lock", "tools/renovate/cmd.sh bazel-lock"],
         executionMode: "branch",
         fileFilters: ["tools/requirements.txt", "MODULE.bazel.lock"],
       },
@@ -199,8 +217,7 @@
       // Bazelisk reads the single Bazel pin from .bazelversion.
       skipArtifactsUpdate: true,
       postUpgradeTasks: {
-        commands: [".github/renovate-cmd bazel-lock"],
-        installTools: { bazelisk: {} },
+        commands: ["tools/renovate/cmd.sh bazel-lock"],
         executionMode: "branch",
         fileFilters: ["MODULE.bazel.lock"],
       },
@@ -216,8 +233,7 @@
         "Refreshes Python transitive dependencies within requirements.in constraints and the Bazel lockfile. pip-compile may select new transitive majors and does not enforce Renovate's minimumReleaseAge.",
       ],
       postUpgradeTasks: {
-        commands: [".github/renovate-cmd python-refresh", ".github/renovate-cmd bazel-refresh"],
-        installTools: { bazelisk: {} },
+        commands: ["tools/renovate/cmd.sh python-refresh", "tools/renovate/cmd.sh bazel-refresh"],
         executionMode: "branch",
         fileFilters: ["tools/requirements.txt", "MODULE.bazel.lock"],
       },
@@ -243,8 +259,7 @@
       matchDepTypes: ["node-runtime"],
       skipArtifactsUpdate: true,
       postUpgradeTasks: {
-        commands: [".github/renovate-cmd node-lock"],
-        installTools: { bazelisk: {} },
+        commands: ["tools/renovate/cmd.sh node-lock"],
         executionMode: "branch",
         fileFilters: ["MODULE.bazel", "MODULE.bazel.lock"],
       },
@@ -262,8 +277,7 @@
       ],
       skipArtifactsUpdate: true,
       postUpgradeTasks: {
-        commands: [".github/renovate-cmd runner-lock"],
-        installTools: { bazelisk: {} },
+        commands: ["tools/renovate/cmd.sh runner-lock"],
         executionMode: "branch",
         fileFilters: ["MODULE.bazel", "MODULE.bazel.lock"],
       },

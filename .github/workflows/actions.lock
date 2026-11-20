@@ -12,7 +12,7 @@ workflows:
     '.github/workflows/dependencies.yml':
         - 'actions/checkout@v7.0.1'
         - 'actions/create-github-app-token@v3.4.0'
-        - 'renovatebot/github-action@v46.3.14'
+        - 'bazel-contrib/setup-bazel@0.19.2'
 dependencies:
     'actions/attest@v4.2.2':
         ref: 'v4.2.2'
@@ -44,8 +44,3 @@ dependencies:
         commit: 'sha1-f34d6a05eae3c24acab7fa54587492daeaeffdab'
         owner_id: 91752542
         repo_id: 585352364
-    'renovatebot/github-action@v46.3.14':
-        ref: 'v46.3.14'
-        commit: 'sha1-acdd6bda8b035c99ce59d5675816af2aa65a1774'
-        owner_id: 38656520
-        repo_id: 252754603

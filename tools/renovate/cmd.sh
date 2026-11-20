@@ -37,7 +37,7 @@ runner_lock() (
     printf '%s\n' "$updated" > MODULE.bazel
 )
 
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 case "$1" in
     python-lock)
         exec bazel run //tools:requirements.update
@@ -46,7 +46,7 @@ case "$1" in
         exec bazel run //tools:requirements.update -- --upgrade
         ;;
     node-lock)
-        .github/renovate-node lock
+        tools/renovate/node.sh lock
         exec bazel mod deps --lockfile_mode=update
         ;;
     runner-lock)

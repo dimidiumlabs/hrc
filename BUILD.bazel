@@ -120,6 +120,7 @@ filegroup(
         "//tools/format:BUILD.bazel",
         "//tools/rules_ansible:starlark_sources",
         "//tools/rules_msbuild:starlark_sources",
+        "//tools/renovate:starlark_sources",
         "//tools/rules_service:starlark_sources",
     ],
     tags = [

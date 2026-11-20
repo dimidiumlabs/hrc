@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+load(":sdk.bzl", "go_sdk_binary")
+
+go_sdk_binary(name = "go")
+
+# The Renovate job and its bootstrap artifacts are Linux/amd64 only.
+filegroup(
+    name = "node",
+    srcs = ["@node24_linux_glibc_x64//:node_bin"],
+)
+
+filegroup(
+    name = "starlark_sources",
+    srcs = [
+        "BUILD.bazel",
+        "sdk.bzl",
+    ],
+    visibility = ["//visibility:public"],
+)

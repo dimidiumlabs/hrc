@@ -5,7 +5,7 @@
 # Preflight runs on the trusted default branch. Its immutable hash catalogue is
 # passed to Renovate's post-upgrade task; that task never discovers new versions.
 set -euo pipefail
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 
 fetch() {
     local headers=()
@@ -71,8 +71,8 @@ case "${1:-}" in
             releases=$(jq --arg version "$version" --arg x64 "$x64" --arg arm64 "$arm64" \
                 '.[$version] = {major: ($version | split(".")[0]), x64: $x64, arm64: $arm64}' <<< "$releases")
         done < <(jq -r '.[]' <<< "$candidates")
-        # Output single-line GitHub Actions values; no generated files need mounting
-        # into Renovate's container. An empty candidate set permits no new versions.
+        # Output single-line GitHub Actions values. An empty candidate set
+        # permits no new versions.
         jq -cr '
             "rules=" + ([{matchManagers: ["custom.regex"], matchDepTypes: ["node-runtime"],
                 allowedVersions: ("/^v?(" + (keys | map(gsub("\\."; "\\.")) | join("|")) + ")$/")} ] | tojson),
