@@ -36,15 +36,6 @@
   customManagers: [
     {
       customType: "regex",
-      description: "Update the mise bootstrap binary and its SHA-256 pin",
-      datasourceTemplate: "github-release-attachments",
-      managerFilePatterns: ["/^\\.github/workflows/.*\\.yml$/"],
-      matchStrings: [
-        "# renovate: depName=(?<depName>[^\\s]+)\\s+version: (?<currentValue>v[0-9.]+)\\s+sha256: (?<currentDigest>[a-f0-9]{64})",
-      ],
-    },
-    {
-      customType: "regex",
       description: "Prepare upstream Worker updates for manual compatibility review",
       depTypeTemplate: "runner-source",
       datasourceTemplate: "github-releases",
@@ -174,6 +165,7 @@
     },
 
     {
+      // Includes mise-action's native version/SHA256 inputs (uses-with).
       // Major updates deliberately remain ungrouped for individual review.
       groupName: "github actions",
       matchManagers: ["github-actions"],

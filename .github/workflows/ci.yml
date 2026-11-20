@@ -40,7 +40,6 @@ jobs:
 
       - uses: jdx/mise-action@v5.2.8
         with:
-          # renovate: depName=jdx/mise
           version: v2026.10.17
           sha256: fe6dd17e68e09682b31d2e7bb7bb755d22636ac1af5d94621e300f2ca9e9fe8a
           working_directory: tools
