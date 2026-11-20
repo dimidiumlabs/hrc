@@ -40,8 +40,8 @@ jobs:
 
       - uses: jdx/mise-action@v5.2.8
         with:
-          version: v2026.10.17
-          sha256: fe6dd17e68e09682b31d2e7bb7bb755d22636ac1af5d94621e300f2ca9e9fe8a
+          version: v2026.11.7
+          sha256: 8f5426d9971eaf713b37509749174ca69cf2f08b8b25e389168dcfcab9cd1a4d
           working_directory: tools
           cache: false
           add_shims_to_path: false
