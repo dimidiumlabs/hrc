@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 load("//tools:platforms.bzl", "ARCH", "OS")
+load("//tools/check:sources.bzl", "check_sources")
 load("//tools/rules_service:service.bzl", "service")
 
-exports_files(["BUILD.bazel"])
+check_sources()
 
 service(
     name = "release",

@@ -5,7 +5,10 @@ load("@bazel_skylib//rules:select_file.bzl", "select_file")
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_filegroup", "pkg_files", "strip_prefix")
 load("@rules_python//python:py_test.bzl", "py_test")
+load("//tools/check:sources.bzl", "check_sources")
 load("//tools/rules_msbuild:msbuild.bzl", "msbuild_publish")
+
+check_sources()
 
 exports_files([
     "BUILD.bazel",
@@ -43,15 +46,6 @@ go_test(
         exclude = ["worker*_test.go"],
     ),  # keep
     embed = [":worker"],
-)
-
-filegroup(
-    name = "starlark_sources",
-    srcs = glob([
-        "*.bazel",
-        "*.bzl",
-    ]),
-    visibility = ["//visibility:public"],
 )
 
 NODE_PLATFORMS = {

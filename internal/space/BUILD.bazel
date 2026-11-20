@@ -4,6 +4,9 @@
 load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 load("@rules_go//proto:def.bzl", "go_grpc_library")
+load("//tools/check:sources.bzl", "check_sources")
+
+check_sources()
 
 # gazelle:proto disable_global
 proto_library(
@@ -16,8 +19,6 @@ go_grpc_library(
     proto = ":space_proto",
     importpath = "dimidiumlabs.io/hrc/internal/space",
 )
-
-exports_files(["BUILD.bazel"])
 
 go_library(
     name = "space",

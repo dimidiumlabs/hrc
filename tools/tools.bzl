@@ -3,22 +3,25 @@
 
 """Build tools and the documentation archive."""
 
-# Keep author-defined ordering of named arguments when formatting.
-BUILDIFIER_ARGS = ["-buildifier_disable=callsort"]
-
-def _buildifier_impl(ctx):
-    tool = ctx.toolchains["@buildifier_prebuilt//buildifier:toolchain"].tool
-    executable = ctx.actions.declare_file(ctx.label.name)
-    if ctx.attr.lint_only:
+def _export_tool_impl(ctx):
+    tool = ctx.file.src
+    suffix = ".exe" if not ctx.file.wrapper and tool.extension == "exe" else ""
+    executable = ctx.actions.declare_file(ctx.label.name + suffix)
+    if ctx.file.wrapper:
+        runfile = tool.short_path.removeprefix("../") if tool.short_path.startswith("../") else ctx.workspace_name + "/" + tool.short_path
         ctx.actions.expand_template(
-            template = ctx.file._lint_wrapper,
+            template = ctx.file.wrapper,
             output = executable,
-            substitutions = {"@BUILDIFIER_RUNFILE@": tool.short_path.removeprefix("../")},
+            substitutions = {"@TOOL_RUNFILE@": runfile},
             is_executable = True,
         )
-        return [DefaultInfo(executable = executable, runfiles = ctx.runfiles(files = [tool]))]
-    ctx.actions.symlink(output = executable, target_file = tool, is_executable = True)
-    return [DefaultInfo(executable = executable)]
+    else:
+        ctx.actions.symlink(output = executable, target_file = tool, is_executable = True)
+    runfiles = ctx.runfiles(files = [tool]).merge(ctx.attr.src[DefaultInfo].default_runfiles)
+    providers = [DefaultInfo(executable = executable, runfiles = runfiles)]
+    if RunEnvironmentInfo in ctx.attr.src:
+        providers.append(ctx.attr.src[RunEnvironmentInfo])
+    return providers
 
 def _docs_archive_impl(ctx):
     output = ctx.actions.declare_directory(ctx.label.name)
@@ -71,12 +74,12 @@ docs_archive = rule(
     },
 )
 
-buildifier_tool = rule(
-    implementation = _buildifier_impl,
+export_tool = rule(
+    implementation = _export_tool_impl,
+    doc = "Expose a native tool at bazel-bin/<package>/<name>, preserving its runfiles.",
     executable = True,
     attrs = {
-        "lint_only": attr.bool(default = False),
-        "_lint_wrapper": attr.label(default = Label("//tools:buildifier_lint.sh"), allow_single_file = True),
+        "src": attr.label(mandatory = True, allow_single_file = True, cfg = "exec"),
+        "wrapper": attr.label(allow_single_file = True, doc = "Optional shell template with @TOOL_RUNFILE@."),
     },
-    toolchains = ["@buildifier_prebuilt//buildifier:toolchain"],
 )

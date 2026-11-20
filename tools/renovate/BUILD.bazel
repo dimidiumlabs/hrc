@@ -1,21 +1,23 @@
 # SPDX-FileCopyrightText: 2026 Nikolay Govorov
 # SPDX-License-Identifier: BSD-3-Clause
 
-load(":sdk.bzl", "go_sdk_binary")
+load("//tools:tools.bzl", "export_tool")
+load("//tools/check:sources.bzl", "check_sources")
+load(":sdk.bzl", "go_sdk_file")
 
-go_sdk_binary(name = "go")
-
-# The Renovate job and its bootstrap artifacts are Linux/amd64 only.
-filegroup(
-    name = "node",
-    srcs = ["@node24_linux_glibc_x64//:node_bin"],
+check_sources(
+    sh = ["*.sh"],
 )
 
-filegroup(
-    name = "starlark_sources",
-    srcs = [
-        "BUILD.bazel",
-        "sdk.bzl",
-    ],
-    visibility = ["//visibility:public"],
+go_sdk_file(name = "go_sdk")
+
+export_tool(
+    name = "go",
+    src = ":go_sdk",
+)
+
+# The Renovate job and its bootstrap artifacts are Linux/amd64 only.
+export_tool(
+    name = "node",
+    src = "@node24_linux_glibc_x64//:node_bin",
 )

@@ -3,8 +3,9 @@
 
 load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("//tools/check:sources.bzl", "check_sources")
 
-exports_files(["BUILD.bazel"])
+check_sources()
 
 copy_file(
     name = "runner_version",

@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+# Repository shell scripts are POSIX sh. Use Python when shell becomes complex.
+shell=sh
+
+# Catch lost exit codes and conditional calls that suppress set -e.
+enable=check-extra-masked-returns
+enable=check-set-e-suppressed

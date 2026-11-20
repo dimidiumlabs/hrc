@@ -1,66 +1,69 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # SPDX-FileCopyrightText: 2026 Nikolay Govorov
 # SPDX-License-Identifier: BSD-3-Clause
 
-set -euo pipefail
+set -eu
 
-if [[ $# -ne 1 ]]; then
-    printf 'Usage: %s <command>\n' "$0" >&2
-    exit 2
+if [ "$#" -ne 1 ]; then
+  printf 'Usage: %s <command>\n' "$0" >&2
+  exit 2
 fi
 
 runner_lock() (
-    version=$(jq -Rr 'capture("^RUNNER_VERSION = \"(?<version>[0-9]+\\.[0-9]+\\.[0-9]+)\"$")? | .version' MODULE.bazel)
-    [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Cannot read RUNNER_VERSION' >&2; exit 1; }
+  version=$(jq -Rr 'capture("^RUNNER_VERSION = \"(?<version>[0-9]+\\.[0-9]+\\.[0-9]+)\"$")? | .version' MODULE.bazel)
+  printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || {
+    echo 'Cannot read RUNNER_VERSION' >&2
+    exit 1
+  }
 
-    temporary=$(mktemp -d)
-    trap 'rm -rf -- "$temporary"' EXIT
+  temporary=$(mktemp -d)
+  trap 'rm -rf -- "$temporary"' EXIT
 
-    curl --fail --silent --show-error --location --retry 2 \
-        --connect-timeout 10 --max-time 120 \
-        "https://github.com/actions/runner/archive/refs/tags/v$version.tar.gz" -o "$temporary/source.tar.gz"
-    archive_hash=$(sha256sum "$temporary/source.tar.gz")
+  curl --fail --silent --show-error --location --retry 2 \
+    --connect-timeout 10 --max-time 120 \
+    "https://github.com/actions/runner/archive/refs/tags/v$version.tar.gz" -o "$temporary/source.tar.gz"
+  archive_hash=$(sha256sum "$temporary/source.tar.gz")
 
-    curl --fail --silent --show-error --location --retry 2 \
-        --connect-timeout 10 --max-time 60 \
-        "https://raw.githubusercontent.com/actions/runner/v$version/LICENSE" -o "$temporary/LICENSE"
-    license_hash=$(sha256sum "$temporary/LICENSE")
+  curl --fail --silent --show-error --location --retry 2 \
+    --connect-timeout 10 --max-time 60 \
+    "https://raw.githubusercontent.com/actions/runner/v$version/LICENSE" -o "$temporary/LICENSE"
+  license_hash=$(sha256sum "$temporary/LICENSE")
 
-    # Prepare both hashes before writing, even if subsequent patch application fails.
-    updated=$(jq -Rrs --arg archive "${archive_hash%% *}" --arg license "${license_hash%% *}" '
+  # Prepare both hashes before writing, even if subsequent patch application fails.
+  updated=$(jq -Rrs --arg archive "${archive_hash%% *}" --arg license "${license_hash%% *}" '
         def update($name; $hash):
             ("(?<prefix>name = \"" + $name + "\",\\n    urls = \\[[^\\n]+\\],\\n    sha256 = \")[a-f0-9]{64}") as $pattern
             | if ([match($pattern; "g")] | length) != 1 then error("Cannot locate SHA256 for " + $name)
               else sub($pattern; "\(.prefix)\($hash)") end;
         update("actions_runner"; $archive) | update("actions_runner_license"; $license)
     ' MODULE.bazel)
-    printf '%s\n' "$updated" > MODULE.bazel
+  printf '%s\n' "$updated" >MODULE.bazel
 )
 
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
+cd -- "$(dirname -- "$0")/../.."
 case "$1" in
-    python-lock)
-        exec bazel run //tools:requirements.update
-        ;;
-    python-refresh)
-        exec bazel run //tools:requirements.update -- --upgrade
-        ;;
-    node-lock)
-        tools/renovate/node.sh lock
-        exec bazel mod deps --lockfile_mode=update
-        ;;
-    runner-lock)
-        runner_lock
-        exec bazel mod deps --lockfile_mode=update
-        ;;
-    bazel-lock)
-        exec bazel mod deps --lockfile_mode=update
-        ;;
-    bazel-refresh)
-        exec bazel mod deps --lockfile_mode=refresh
-        ;;
-    *)
-        printf 'Unknown command: %s\n' "$1" >&2
-        exit 2
-        ;;
+python-lock)
+  exec bazel run //tools:requirements.update
+  ;;
+python-refresh)
+  exec bazel run //tools:requirements.update -- --upgrade
+  ;;
+node-lock)
+  tools/renovate/node.sh lock
+  exec bazel mod deps --lockfile_mode=update
+  ;;
+runner-lock)
+  runner_lock
+  exec bazel mod deps --lockfile_mode=update
+  ;;
+bazel-lock)
+  exec bazel mod deps --lockfile_mode=update
+  ;;
+bazel-refresh)
+  exec bazel mod deps --lockfile_mode=refresh
+  ;;
+*)
+  printf 'Unknown command: %s\n' "$1" >&2
+  exit 2
+  ;;
 esac

@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+load("//tools:tools.bzl", "export_tool")
+load(":linter.bzl", "buildifier_file")
+load(":sources.bzl", "check_sources")
+
+check_sources(sh = ["*.sh"])
+
+buildifier_file(name = "buildifier_sdk")
+
+export_tool(
+    name = "buildifier",
+    src = ":buildifier_sdk",
+    visibility = ["//visibility:public"],
+)
+
+export_tool(
+    name = "buildifier_lint",
+    src = ":buildifier",
+    wrapper = "buildifier_lint.sh",
+    visibility = ["//visibility:public"],
+)
+
+export_tool(
+    name = "shellcheck",
+    src = "@aspect_rules_lint//lint:shellcheck_bin",
+    visibility = ["//visibility:public"],
+)
+
+exports_files([".shellcheckrc"])
+
+exports_files(
+    ["format.py"],
+    visibility = ["//:__pkg__"],
+)

@@ -5,13 +5,15 @@
 
 set -eu
 
-if [ "$(id -u)" != 0 ]; then
-    echo '@NAME@: run this command as root' >&2; exit 1
+current_uid=$(id -u)
+if [ "$current_uid" != 0 ]; then
+  echo '@NAME@: run this command as root' >&2
+  exit 1
 fi
 
 if [ -f @SHELL_CONFIG@ ]; then
-    chown root:@GROUP@ @SHELL_CONFIG@
-    chmod 0640 @SHELL_CONFIG@
+  chown root:@GROUP@ @SHELL_CONFIG@
+  chmod 0640 @SHELL_CONFIG@
 fi
 
 # Do not enable or start jobs before providers and secrets are configured.

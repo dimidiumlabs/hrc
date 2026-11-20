@@ -5,12 +5,12 @@
 
 load("@platforms//host:constraints.bzl", "HOST_CONSTRAINTS")
 
-def _go_sdk_binary_impl(ctx):
+def _go_sdk_file_impl(ctx):
     sdk = ctx.toolchains["@rules_go//go:toolchain"].sdk
     return [DefaultInfo(files = depset([sdk.go]))]
 
-go_sdk_binary = rule(
-    implementation = _go_sdk_binary_impl,
+go_sdk_file = rule(
+    implementation = _go_sdk_file_impl,
     toolchains = ["@rules_go//go:toolchain"],
     exec_compatible_with = HOST_CONSTRAINTS,
 )

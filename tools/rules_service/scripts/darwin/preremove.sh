@@ -5,12 +5,14 @@
 
 set -eu
 
-if [ "$(id -u)" != 0 ]; then
-    echo '@NAME@: run this command as root' >&2; exit 1
+current_uid=$(id -u)
+if [ "$current_uid" != 0 ]; then
+  echo '@NAME@: run this command as root' >&2
+  exit 1
 fi
 
 if launchctl print system/io.dimidiumlabs.@NAME@ >/dev/null 2>&1; then
-    launchctl bootout system/io.dimidiumlabs.@NAME@
+  launchctl bootout system/io.dimidiumlabs.@NAME@
 fi
 launchctl disable system/io.dimidiumlabs.@NAME@
 

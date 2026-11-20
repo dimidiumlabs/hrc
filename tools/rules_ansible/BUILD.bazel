@@ -5,6 +5,9 @@ load("@rules_python//python:pip.bzl", "compile_pip_requirements")
 load("@rules_python//python:py_binary.bzl", "py_binary")
 load("@rules_python//python:py_library.bzl", "py_library")
 load("@rules_python//python:py_test.bzl", "py_test")
+load("//tools/check:sources.bzl", "check_sources")
+
+check_sources()
 
 exports_files([
     "collection.bzl",
@@ -42,13 +45,4 @@ py_test(
         "@platforms//os:windows": ["@platforms//:incompatible"],
         "//conditions:default": [],
     }),
-)
-
-filegroup(
-    name = "starlark_sources",
-    srcs = [
-        "BUILD.bazel",
-        "collection.bzl",
-    ],
-    visibility = ["//visibility:public"],
 )

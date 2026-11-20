@@ -2,24 +2,18 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 load("@rules_python//python:py_test.bzl", "py_test")
+load("//tools/check:sources.bzl", "check_sources")
 load(":service.bzl", "service")
+
+check_sources(
+    sh = ["scripts/**/*.sh"],
+)
 
 exports_files([
     "archive.bzl",
     "scripts.bzl",
     "service.bzl",
 ] + glob(["templates/*.tpl"]))
-
-filegroup(
-    name = "starlark_sources",
-    srcs = [
-        "BUILD.bazel",
-        "archive.bzl",
-        "scripts.bzl",
-        "service.bzl",
-    ],
-    visibility = ["//visibility:public"],
-)
 
 filegroup(
     name = "linux_script_templates",

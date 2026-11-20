@@ -4,6 +4,33 @@
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load("@gazelle//:def.bzl", "gazelle")
 load("//tools:tools.bzl", "docs_archive")
+load("//tools/check:formatters.bzl", "repository_format")
+load("//tools/check:linter.bzl", "buildifier_test", "shellcheck_test")
+load("//tools/check:sources.bzl", "check_sources")
+
+check_sources(
+    bazel = [
+        "BUILD.bazel",
+        "MODULE.bazel",
+    ],
+    deps = [
+        "//ansible",
+        "//cmd",
+        "//cmd/hrcd",
+        "//cmd/hrcs",
+        "//internal/config",
+        "//internal/provider",
+        "//internal/provider-github",
+        "//internal/provider-github/listener",
+        "//internal/provider-github/worker",
+        "//internal/runtime",
+        "//internal/slot",
+        "//internal/slot-pgroup",
+        "//internal/space",
+        "//internal/space-host",
+        "//tools",
+    ],
+)
 
 exports_files(["LICENSE"])
 
@@ -25,6 +52,31 @@ filegroup(
         exclude = ["docs/draft/**"],
     ),
     visibility = ["//cmd:__pkg__"],
+)
+
+repository_format(
+    name = "format",
+    srcs = [":check_sources"],
+)
+
+buildifier_test(
+    name = "lint_starlark",
+    srcs = [":bazel_sources"],
+    size = "small",
+)
+
+shellcheck_test(
+    name = "lint_shell",
+    srcs = [":sh_sources"],
+    size = "small",
+)
+
+test_suite(
+    name = "lint",
+    tests = [
+        ":lint_shell",
+        ":lint_starlark",
+    ],
 )
 
 alias(
@@ -93,39 +145,6 @@ test_suite(
         "//tools/rules_ansible:collection_test",
         "//tools/rules_ansible:requirements.test",
         "//tools/rules_service:scripts_test",
-    ],
-)
-
-filegroup(
-    name = "starlark_sources",
-    srcs = [
-        "BUILD.bazel",
-        "MODULE.bazel",
-    ] + [
-        "//ansible:starlark_sources",
-        "//cmd:BUILD.bazel",
-        "//cmd/hrcd:BUILD.bazel",
-        "//cmd/hrcs:BUILD.bazel",
-        "//internal/config:BUILD.bazel",
-        "//internal/provider:BUILD.bazel",
-        "//internal/provider-github:BUILD.bazel",
-        "//internal/provider-github/listener:BUILD.bazel",
-        "//internal/provider-github/worker:starlark_sources",
-        "//internal/runtime:BUILD.bazel",
-        "//internal/slot:BUILD.bazel",
-        "//internal/slot-pgroup:BUILD.bazel",
-        "//internal/space:BUILD.bazel",
-        "//internal/space-host:BUILD.bazel",
-        "//tools:starlark_sources",
-        "//tools/format:BUILD.bazel",
-        "//tools/rules_ansible:starlark_sources",
-        "//tools/rules_msbuild:starlark_sources",
-        "//tools/renovate:starlark_sources",
-        "//tools/rules_service:starlark_sources",
-    ],
-    tags = [
-        "lint-with-buildifier",
-        "manual",
     ],
 )
 

@@ -27,4 +27,4 @@ build --action_env=PROGRAMFILES(X86)
 build --action_env=PROCESSOR_ARCHITECTURE
 build --action_env=PROCESSOR_ARCHITEW6432
 
-build:lint --aspects=//tools:linters.bzl%buildifier
+build:lint --aspects=//tools/check:linter.bzl%buildifier

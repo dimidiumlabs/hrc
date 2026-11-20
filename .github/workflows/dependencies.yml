@@ -34,6 +34,10 @@ on:
         type: boolean
         default: true
 
+defaults:
+  run:
+    shell: sh
+
 permissions:
   contents: read
 
@@ -95,12 +99,12 @@ jobs:
         id: node
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash tools/renovate/node.sh catalog >> "$GITHUB_OUTPUT"
+        run: sh tools/renovate/node.sh catalog >> "$GITHUB_OUTPUT"
 
       # Provision before creating the write-capable App token. No npm lifecycle
       # scripts or network extension installation are allowed by this setup.
       - name: Prepare standalone Renovate
-        run: bash tools/renovate/setup.sh "$RUNNER_TEMP/hrc-renovate"
+        run: sh tools/renovate/setup.sh "$RUNNER_TEMP/hrc-renovate"
         env:
           RENOVATE_CUSTOM_ENV_VARIABLES: ${{ steps.node.outputs.environment }}
 

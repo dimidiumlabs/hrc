@@ -5,10 +5,12 @@
 
 set -eu
 
-if [ "$(id -u)" != 0 ]; then
-    echo '@NAME@: run this command as root' >&2; exit 1
+current_uid=$(id -u)
+if [ "$current_uid" != 0 ]; then
+  echo '@NAME@: run this command as root' >&2
+  exit 1
 fi
 
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-    systemctl daemon-reload
+  systemctl daemon-reload
 fi

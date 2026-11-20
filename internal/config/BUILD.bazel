@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("//tools/check:sources.bzl", "check_sources")
 
-exports_files(["BUILD.bazel"])
+check_sources()
 
 go_library(
     name = "config",

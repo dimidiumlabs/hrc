@@ -1,10 +1,11 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # SPDX-FileCopyrightText: 2026 Nikolay Govorov
 # SPDX-License-Identifier: BSD-3-Clause
 
-set -euo pipefail
+set -eu
 
-[[ $(uname -sm) == 'Linux x86_64' ]] || {
+host=$(uname -sm)
+[ "$host" = 'Linux x86_64' ] || {
   echo 'Requires Linux/amd64' >&2
   exit 1
 }
@@ -12,26 +13,26 @@ set -euo pipefail
 command -v bazel gh gh-actions-lock jq >/dev/null
 
 runtime=$(realpath -m "${1:?Usage: setup.sh INSTALL_DIR}")
-cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+cd "$(dirname "$0")/../.."
 
 source_dir="$PWD/tools/renovate"
 mkdir -p "$runtime/bin" "$runtime/extensions/gh-actions-lock" "$runtime/npm"
 
 # Register the mise-installed binary locally; no gh extension downloads.
 extension="$runtime/extensions/gh-actions-lock/gh-actions-lock"
-ln -sfn "$(command -v gh-actions-lock)" "$extension"
+lock_binary=$(command -v gh-actions-lock)
+ln -sfn "$lock_binary" "$extension"
 
 export GH_CONFIG_DIR="$runtime/gh-config" XDG_DATA_HOME="$runtime/share"
 registration="$XDG_DATA_HOME/gh/extensions/gh-actions-lock"
 
-if [[ -L $registration ]]; then rm "$registration"; fi
+if [ -L "$registration" ]; then rm "$registration"; fi
 (cd "$(dirname "$extension")" && gh extension install .)
 
 # Reuse the raw SDKs, not the rules_go runner with its automatic tidy hooks.
 bazel build --lockfile_mode=error //tools/renovate:go //tools/renovate:node
-execroot=$(bazel info execution_root)
-go=$(realpath "$execroot/$(bazel cquery //tools/renovate:go --lockfile_mode=error --output=files)")
-node=$(realpath "$execroot/$(bazel cquery //tools/renovate:node --lockfile_mode=error --output=files)")
+go=$(realpath bazel-bin/tools/renovate/go)
+node=$(realpath bazel-bin/tools/renovate/node)
 GOROOT=$(dirname "$(dirname "$go")")
 PATH="$runtime/bin:$(dirname "$node"):$(dirname "$go"):$PATH"
 export GOROOT PATH GOTOOLCHAIN=local
@@ -56,7 +57,15 @@ RENOVATE_CUSTOM_ENV_VARIABLES=$(jq -cn \
   '$existing + ($ARGS.named | del(.existing))')
 : >"$runtime/env.sh"
 
-for key in PATH GOROOT GOTOOLCHAIN GH_CONFIG_DIR XDG_DATA_HOME RENOVATE_BINARY_SOURCE RENOVATE_CUSTOM_ENV_VARIABLES; do
-  printf 'export %s=%q\n' "$key" "${!key}" >>"$runtime/env.sh"
-  if [[ -n ${GITHUB_ENV:-} ]]; then printf '%s=%s\n' "$key" "${!key}" >>"$GITHUB_ENV"; fi
-done
+write_env() {
+  quoted=$(jq -rn --arg value "$2" '$value | @sh')
+  printf 'export %s=%s\n' "$1" "$quoted" >>"$runtime/env.sh"
+  if [ -n "${GITHUB_ENV:-}" ]; then printf '%s=%s\n' "$1" "$2" >>"$GITHUB_ENV"; fi
+}
+write_env PATH "$PATH"
+write_env GOROOT "$GOROOT"
+write_env GOTOOLCHAIN "$GOTOOLCHAIN"
+write_env GH_CONFIG_DIR "$GH_CONFIG_DIR"
+write_env XDG_DATA_HOME "$XDG_DATA_HOME"
+write_env RENOVATE_BINARY_SOURCE "$RENOVATE_BINARY_SOURCE"
+write_env RENOVATE_CUSTOM_ENV_VARIABLES "$RENOVATE_CUSTOM_ENV_VARIABLES"

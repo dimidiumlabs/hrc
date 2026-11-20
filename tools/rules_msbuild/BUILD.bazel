@@ -2,15 +2,12 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 load("@rules_python//python:py_binary.bzl", "py_binary")
+load("//tools/check:sources.bzl", "check_sources")
+
+check_sources()
 
 py_binary(
     name = "publish",
     srcs = ["publish.py"],
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "starlark_sources",
-    srcs = glob(["*.bzl"]) + ["BUILD.bazel"],
     visibility = ["//visibility:public"],
 )

@@ -1,39 +1,45 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # SPDX-FileCopyrightText: 2026 Nikolay Govorov
 # SPDX-License-Identifier: BSD-3-Clause
 
 # Preflight runs on the trusted default branch. Its immutable hash catalogue is
 # passed to Renovate's post-upgrade task; that task never discovers new versions.
-set -euo pipefail
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
+set -eu
+cd -- "$(dirname -- "$0")/../.."
 
 fetch() {
-    local headers=()
-    if [[ "$1" == https://api.github.com/* && -n "${GH_TOKEN:-}" ]]; then
-        headers=(-H "Authorization: Bearer $GH_TOKEN")
-    fi
-    curl --fail --silent --show-error --location --retry 2 \
-        --connect-timeout 10 --max-time 60 "${headers[@]}" "$1"
+  case "$1" in
+  https://api.github.com/*)
+    if [ -n "${GH_TOKEN:-}" ]; then set -- -H "Authorization: Bearer $GH_TOKEN" "$1"; fi
+    ;;
+  esac
+  curl --fail --silent --show-error --location --retry 2 \
+    --connect-timeout 10 --max-time 60 "$@"
 }
 
 case "${1:-}" in
-    catalog)
-        [[ $# -eq 1 ]] || exit 2
-        temporary=$(mktemp -d)
-        trap 'rm -rf -- "$temporary"' EXIT
-        # Keep the already pinned versions usable even during an upstream outage.
-        releases=$(jq -Rn '
+catalog)
+  [ "$#" -eq 1 ] || exit 2
+  temporary=$(mktemp -d)
+  trap 'rm -rf -- "$temporary"' EXIT
+  # Keep the already pinned versions usable even during an upstream outage.
+  releases=$(jq -Rn '
             [inputs | capture("^    \"(?<major>[0-9]+)\": \\(\"(?<version>[0-9]+\\.[0-9]+\\.[0-9]+)\", \"(?<x64>[a-f0-9]{64})\", \"(?<arm64>[a-f0-9]{64})\"\\),$")?]
             | map({key: .version, value: {major, x64, arm64}}) | from_entries
         ' MODULE.bazel)
-        rules_version=$(jq -Rr 'capture("^bazel_dep\\(name = \"rules_nodejs\", version = \"(?<version>[0-9.]+)\"\\)$")? | .version' MODULE.bazel)
-        [[ -n "$rules_version" && "$releases" != '{}' ]] || { echo 'Cannot read Node pins' >&2; exit 1; }
-        candidates='[]'
-        if fetch "https://raw.githubusercontent.com/bazel-contrib/rules_nodejs/v$rules_version/nodejs/private/node_versions.bzl" > "$temporary/versions" &&
-            fetch 'https://unofficial-builds.nodejs.org/download/release/index.json' > "$temporary/index.json"; then
-            # rules_nodejs uses a fixed support table, not arbitrary Node versions.
-            # Require all six normal distributions and the unofficial arm64 musl build.
-            candidates=$(jq -Rn --argjson pinned "$releases" --slurpfile index "$temporary/index.json" '
+  rules_version=$(jq -Rr 'capture("^bazel_dep\\(name = \"rules_nodejs\", version = \"(?<version>[0-9.]+)\"\\)$")? | .version' MODULE.bazel)
+  [ -n "$rules_version" ] && [ "$releases" != '{}' ] || {
+    echo 'Cannot read Node pins' >&2
+    exit 1
+  }
+  candidates='[]'
+  # fetch returns curl\'s status directly; failures intentionally defer updates.
+  # shellcheck disable=SC2310
+  if fetch "https://raw.githubusercontent.com/bazel-contrib/rules_nodejs/v$rules_version/nodejs/private/node_versions.bzl" >"$temporary/versions" &&
+    fetch 'https://unofficial-builds.nodejs.org/download/release/index.json' >"$temporary/index.json"; then
+    # rules_nodejs uses a fixed support table, not arbitrary Node versions.
+    # Require all six normal distributions and the unofficial arm64 musl build.
+    candidates=$(jq -Rn --argjson pinned "$releases" --slurpfile index "$temporary/index.json" '
                 [inputs | capture("^        \"(?<version>[0-9]+\\.[0-9]+\\.[0-9]+)-(?<platform>darwin_amd64|darwin_arm64|linux_amd64|linux_arm64|windows_amd64|windows_arm64)\":")?]
                 | group_by(.version)
                 | map(select((map(.platform) | unique | length) == 6) | .[0].version)
@@ -43,46 +49,59 @@ case "${1:-}" in
                 | map(. as $v | select(any($index[0][];
                     .version == ("v" + $v) and (.files | index("linux-arm64-musl")) != null)))
             ' "$temporary/versions")
-        else
-            echo 'Node updates deferred: release indexes unavailable' >&2
-        fi
-        while IFS= read -r version; do
-            if ! fetch "https://api.github.com/repos/actions/alpine_nodejs/releases/tags/v$version" > "$temporary/release.json" ||
-                ! fetch "https://unofficial-builds.nodejs.org/download/release/v$version/SHASUMS256.txt" > "$temporary/sums"; then
-                echo "Node $version deferred: musl release metadata unavailable" >&2
-                continue
-            fi
-            x64=$(jq -r --arg version "$version" '
+  else
+    echo 'Node updates deferred: release indexes unavailable' >&2
+  fi
+  candidate_versions=$(printf '%s\n' "$candidates" | jq -r '.[]')
+  while IFS= read -r version; do
+    [ -n "$version" ] || continue
+    # fetch returns curl\'s status directly; failures intentionally defer this version.
+    # shellcheck disable=SC2310
+    if ! fetch "https://api.github.com/repos/actions/alpine_nodejs/releases/tags/v$version" >"$temporary/release.json" ||
+      ! fetch "https://unofficial-builds.nodejs.org/download/release/v$version/SHASUMS256.txt" >"$temporary/sums"; then
+      echo "Node $version deferred: musl release metadata unavailable" >&2
+      continue
+    fi
+    x64=$(jq -r --arg version "$version" '
                 select(.draft == false and .prerelease == false) | .assets[]
                 | select(.name == ("node-v" + $version + "-alpine-x64.tar.gz") and .state == "uploaded")
                 | .digest // "" | select(test("^sha256:[a-f0-9]{64}$")) | ltrimstr("sha256:")
             ' "$temporary/release.json")
-            arm64=$(jq -Rr --arg name "node-v$version-linux-arm64-musl.tar.gz" '
+    arm64=$(jq -Rr --arg name "node-v$version-linux-arm64-musl.tar.gz" '
                 capture("^(?<hash>[a-f0-9]{64})[ \\t]+\\*?(?<name>[^ \\t]+)$")?
                 | select(.name == $name) | .hash
             ' "$temporary/sums")
-            if [[ ! "$x64" =~ ^[a-f0-9]{64}$ || ! "$arm64" =~ ^[a-f0-9]{64}$ ]] ||
-                ! curl --fail --silent --show-error --location --head --retry 2 \
-                    --connect-timeout 10 --max-time 60 \
-                    "https://unofficial-builds.nodejs.org/download/release/v$version/node-v$version-linux-arm64-musl.tar.gz" > /dev/null; then
-                echo "Node $version deferred: musl archive or SHA256 unavailable" >&2
-                continue
-            fi
-            releases=$(jq --arg version "$version" --arg x64 "$x64" --arg arm64 "$arm64" \
-                '.[$version] = {major: ($version | split(".")[0]), x64: $x64, arm64: $arm64}' <<< "$releases")
-        done < <(jq -r '.[]' <<< "$candidates")
-        # Output single-line GitHub Actions values. An empty candidate set
-        # permits no new versions.
-        jq -cr '
+    if ! printf '%s\n' "$x64" | grep -Eq '^[a-f0-9]{64}$' ||
+      ! printf '%s\n' "$arm64" | grep -Eq '^[a-f0-9]{64}$' ||
+      ! curl --fail --silent --show-error --location --head --retry 2 \
+        --connect-timeout 10 --max-time 60 \
+        "https://unofficial-builds.nodejs.org/download/release/v$version/node-v$version-linux-arm64-musl.tar.gz" >/dev/null; then
+      echo "Node $version deferred: musl archive or SHA256 unavailable" >&2
+      continue
+    fi
+    releases=$(
+      jq --arg version "$version" --arg x64 "$x64" --arg arm64 "$arm64" \
+        '.[$version] = {major: ($version | split(".")[0]), x64: $x64, arm64: $arm64}' <<EOF
+$releases
+EOF
+    )
+  done <<EOF
+$candidate_versions
+EOF
+  # Output single-line GitHub Actions values. An empty candidate set
+  # permits no new versions.
+  jq -cr '
             "rules=" + ([{matchManagers: ["custom.regex"], matchDepTypes: ["node-runtime"],
                 allowedVersions: ("/^v?(" + (keys | map(gsub("\\."; "\\.")) | join("|")) + ")$/")} ] | tojson),
             "environment=" + ({HRC_NODE_RELEASES: tojson} | tojson)
-        ' <<< "$releases"
-        ;;
-    lock)
-        [[ $# -eq 1 ]] || exit 2
-        # Validate and prepare the whole file before writing: never leave half an update.
-        updated=$(jq -Rrs --argjson releases "${HRC_NODE_RELEASES:?Missing preflight Node catalogue}" '
+        ' <<EOF
+$releases
+EOF
+  ;;
+lock)
+  [ "$#" -eq 1 ] || exit 2
+  # Validate and prepare the whole file before writing: never leave half an update.
+  updated=$(jq -Rrs --argjson releases "${HRC_NODE_RELEASES:?Missing preflight Node catalogue}" '
             split("\n") | map(
                 . as $line
                 | (capture("^    \"(?<major>[0-9]+)\": \\(\"(?<version>[0-9]+\\.[0-9]+\\.[0-9]+)\", \"[a-f0-9]{64}\", \"[a-f0-9]{64}\"\\),$") // null) as $pin
@@ -97,10 +116,10 @@ case "${1:-}" in
                   end
             ) | join("\n")
         ' MODULE.bazel)
-        printf '%s\n' "$updated" > MODULE.bazel
-        ;;
-    *)
-        printf 'Usage: %s <catalog|lock>\n' "$0" >&2
-        exit 2
-        ;;
+  printf '%s\n' "$updated" >MODULE.bazel
+  ;;
+*)
+  printf 'Usage: %s <catalog|lock>\n' "$0" >&2
+  exit 2
+  ;;
 esac
