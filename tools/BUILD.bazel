@@ -10,6 +10,10 @@ load(":tools.bzl", "export_tool")
 
 check_sources(
     sh = ["*.sh"],
+    py = [
+        "*.py",
+        "site/**/*.py",
+    ],
     deps = [
         "//tools/check",
         "//tools/renovate",

@@ -19,6 +19,18 @@ buildifier_file = rule(
     toolchains = ["@buildifier_prebuilt//buildifier:toolchain"],
 )
 
+def _gofmt_file_impl(ctx):
+    sdk = ctx.toolchains["@rules_go//go:toolchain"].sdk
+    tools = [tool for tool in sdk.tools.to_list() if tool.basename in ["gofmt", "gofmt.exe"]]
+    if len(tools) != 1:
+        fail("Expected exactly one gofmt executable in the Go SDK")
+    return [DefaultInfo(files = depset(tools))]
+
+gofmt_file = rule(
+    implementation = _gofmt_file_impl,
+    toolchains = ["@rules_go//go:toolchain"],
+)
+
 buildifier = lint_buildifier_aspect(
     args = BUILDIFIER_ARGS,
     binary = Label("//tools/check:buildifier_lint"),

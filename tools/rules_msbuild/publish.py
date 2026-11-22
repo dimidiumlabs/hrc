@@ -13,7 +13,15 @@ import tempfile
 
 def main():
     parser = argparse.ArgumentParser(fromfile_prefix_chars="@")
-    for name in ("sdk", "output", "rid", "self_contained", "project", "assembly_name", "version"):
+    for name in (
+        "sdk",
+        "output",
+        "rid",
+        "self_contained",
+        "project",
+        "assembly_name",
+        "version",
+    ):
         parser.add_argument(name)
     parser.add_argument("--property", action="append", default=[])
     parser.add_argument("--staged", nargs=2, action="append", default=[])
@@ -39,11 +47,18 @@ def main():
         for package in args.package:
             shutil.copyfile(package, feed / Path(package).name)
         config = root / "NuGet.Config"
-        config.write_text(f'<configuration><packageSources><clear/><add key="local" value="{feed}"/></packageSources></configuration>')
-        environment = dict(os.environ, DOTNET_CLI_HOME=str(root / "home"),
-                           DOTNET_CLI_TELEMETRY_OPTOUT="1", DOTNET_CLI_USE_MSBUILD_SERVER="false",
-                           MSBUILDDISABLENODEREUSE="1", NUGET_PACKAGES=str(root / "packages"),
-                           NUGET_HTTP_CACHE_PATH=str(root / "http"))
+        config.write_text(
+            f'<configuration><packageSources><clear/><add key="local" value="{feed}"/></packageSources></configuration>'
+        )
+        environment = dict(
+            os.environ,
+            DOTNET_CLI_HOME=str(root / "home"),
+            DOTNET_CLI_TELEMETRY_OPTOUT="1",
+            DOTNET_CLI_USE_MSBUILD_SERVER="false",
+            MSBUILDDISABLENODEREUSE="1",
+            NUGET_PACKAGES=str(root / "packages"),
+            NUGET_HTTP_CACHE_PATH=str(root / "http"),
+        )
         if os.name == "nt":
             # Bazel actions do not inherit a full Windows user environment.
             # NuGet initializes machine/user settings even with --configfile.
@@ -58,20 +73,52 @@ def main():
                 directory.mkdir(parents=True, exist_ok=True)
                 environment[name] = str(directory)
         project = root / args.project
-        properties = [f"-p:RuntimeIdentifier={args.rid}", "-p:RuntimeIdentifiers=",
-                      f"-p:SelfContained={args.self_contained}",
-                      "-p:PublishSingleFile=true", "-p:UseAppHost=true",
-                      "-p:IncludeNativeLibrariesForSelfExtract=true",
-                      "-p:IncludeAllContentForSelfExtract=false", "-p:PublishReadyToRun=false",
-                      "-p:PublishReadyToRunComposite=false", "-p:NuGetAudit=false",
-                      "-p:EnableSingleFileAnalyzer=false", "-p:DebugType=None",
-                      f"-p:Version={version}"] + ["-p:" + value for value in args.property]
-        subprocess.run([str(sdk), "restore", str(project), "--configfile", str(config), *properties],
-                       env=environment, check=True)
+        properties = [
+            f"-p:RuntimeIdentifier={args.rid}",
+            "-p:RuntimeIdentifiers=",
+            f"-p:SelfContained={args.self_contained}",
+            "-p:PublishSingleFile=true",
+            "-p:UseAppHost=true",
+            "-p:IncludeNativeLibrariesForSelfExtract=true",
+            "-p:IncludeAllContentForSelfExtract=false",
+            "-p:PublishReadyToRun=false",
+            "-p:PublishReadyToRunComposite=false",
+            "-p:NuGetAudit=false",
+            "-p:EnableSingleFileAnalyzer=false",
+            "-p:DebugType=None",
+            f"-p:Version={version}",
+        ] + ["-p:" + value for value in args.property]
+        subprocess.run(
+            [
+                str(sdk),
+                "restore",
+                str(project),
+                "--configfile",
+                str(config),
+                *properties,
+            ],
+            env=environment,
+            check=True,
+        )
         publish = root / "publish"
-        subprocess.run([str(sdk), "publish", str(project), "--no-restore", "-c", "Release",
-                        "-o", str(publish), *properties], env=environment, check=True)
-        executable = publish / (args.assembly_name + (".exe" if args.rid.startswith("win-") else ""))
+        subprocess.run(
+            [
+                str(sdk),
+                "publish",
+                str(project),
+                "--no-restore",
+                "-c",
+                "Release",
+                "-o",
+                str(publish),
+                *properties,
+            ],
+            env=environment,
+            check=True,
+        )
+        executable = publish / (
+            args.assembly_name + (".exe" if args.rid.startswith("win-") else "")
+        )
         # Never silently discard dependencies that were not bundled.
         extras = [path.name for path in publish.iterdir() if path != executable]
         if extras:

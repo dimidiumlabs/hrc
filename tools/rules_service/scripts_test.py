@@ -18,18 +18,29 @@ HOOKS = {"preinstall.sh", "postinstall.sh", "preremove.sh", "postremove.sh"}
 
 class ScriptsTest(unittest.TestCase):
     def test_platform_selection_and_substitutions(self):
-        self.assertEqual(set(FIXTURES), {"linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64"})
+        self.assertEqual(
+            set(FIXTURES),
+            {"linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64"},
+        )
         for target, scripts in FIXTURES.items():
             system, arch = target.split("-")
             prefix = "/opt/fixture's prefix" if arch == "amd64" else ""
-            config_dir = prefix + "/etc/fixture" if system == "darwin" else "/etc/fixture"
+            config_dir = (
+                prefix + "/etc/fixture" if system == "darwin" else "/etc/fixture"
+            )
             paths = {
                 "config_dir": config_dir,
                 "config": config_dir + "/fixture.json",
-                "state_dir": prefix + "/var/fixture" if system == "darwin" else "/var/lib/fixture",
-                "log_dir": "/Library/Logs/fixture" if system == "darwin" else "/var/log/fixture",
+                "state_dir": prefix + "/var/fixture"
+                if system == "darwin"
+                else "/var/lib/fixture",
+                "log_dir": "/Library/Logs/fixture"
+                if system == "darwin"
+                else "/var/log/fixture",
             }
-            self.assertEqual(set(scripts), HOOKS if system == "linux" else HOOKS - {"postremove.sh"})
+            self.assertEqual(
+                set(scripts), HOOKS if system == "linux" else HOOKS - {"postremove.sh"}
+            )
             for name, path in scripts.items():
                 with self.subTest(target=target, hook=name):
                     text = path.read_text(encoding="utf-8")
@@ -40,20 +51,40 @@ class ScriptsTest(unittest.TestCase):
                     self.assertNotIn("arch()", text)
                     self.assertNotIn("common.sh", text)
                     self.assertNotIn("select_init", text)
-                    self.assertNotRegex(text, r"(?m)^(?:config|config_dir|state_dir|log_dir)=")
-                    self.assertNotRegex(text, r"\$(?:\{)?(?:config|config_dir|state_dir|log_dir)\b")
+                    self.assertNotRegex(
+                        text, r"(?m)^(?:config|config_dir|state_dir|log_dir)="
+                    )
+                    self.assertNotRegex(
+                        text, r"\$(?:\{)?(?:config|config_dir|state_dir|log_dir)\b"
+                    )
                     if name == "preinstall.sh":
                         directories = {
                             shlex.split(line)[-1]
                             for line in text.splitlines()
                             if line.startswith("install -d ")
                         }
-                        self.assertEqual(directories, {paths["config_dir"], paths["config_dir"] + "/secrets", paths["state_dir"], paths["log_dir"]})
+                        self.assertEqual(
+                            directories,
+                            {
+                                paths["config_dir"],
+                                paths["config_dir"] + "/secrets",
+                                paths["state_dir"],
+                                paths["log_dir"],
+                            },
+                        )
                     elif name == "postinstall.sh":
-                        condition = re.search(r"^if \[ -f (.*) \]; then$", text, re.MULTILINE)
+                        condition = re.search(
+                            r"^if \[ -f (.*) \]; then$", text, re.MULTILINE
+                        )
                         self.assertIsNotNone(condition)
-                        self.assertEqual(shlex.split(condition.group(1)), [paths["config"]])
-                    forbidden = ("dscl", "launchctl") if system == "linux" else ("systemctl", "rc-service", "getent", "useradd")
+                        self.assertEqual(
+                            shlex.split(condition.group(1)), [paths["config"]]
+                        )
+                    forbidden = (
+                        ("dscl", "launchctl")
+                        if system == "linux"
+                        else ("systemctl", "rc-service", "getent", "useradd")
+                    )
                     for command in forbidden:
                         self.assertNotIn(command, text)
                     if os.name != "nt":
@@ -64,7 +95,11 @@ class ScriptsTest(unittest.TestCase):
         for target, scripts in FIXTURES.items():
             for name, path in scripts.items():
                 with self.subTest(target=target, hook=name):
-                    result = subprocess.run([shutil.which("sh"), "-n", str(path)], capture_output=True, text=True)
+                    result = subprocess.run(
+                        [shutil.which("sh"), "-n", str(path)],
+                        capture_output=True,
+                        text=True,
+                    )
                     self.assertEqual(result.returncode, 0, result.stderr)
 
     @unittest.skipIf(shutil.which("sh") is None, "POSIX shell is unavailable")

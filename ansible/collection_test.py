@@ -33,20 +33,30 @@ class CollectionTest(unittest.TestCase):
         for platform in PLATFORMS:
             os_name, arch = platform.split("-")
             content = f"{arch}-{os_name}".encode()
-            with tarfile.open(self.artifacts / f"hrc-{arch}-{os_name}-{VERSION}.tar.gz", "w:gz") as archive:
+            with tarfile.open(
+                self.artifacts / f"hrc-{arch}-{os_name}-{VERSION}.tar.gz", "w:gz"
+            ) as archive:
                 member = tarfile.TarInfo("./TARGET")
                 member.size = len(content)
                 archive.addfile(member, io.BytesIO(content))
-        self.env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path),
-                        ANSIBLE_HOME=str(self.root / "home"),
-                        ANSIBLE_REMOTE_TEMP=str(self.root / "remote-tmp"),
-                        ANSIBLE_LOCAL_TEMP=str(self.root / "tmp"),
-                        ANSIBLE_COLLECTIONS_PATH=str(self.root / "collections"),
-                        ANSIBLE_NOCOLOR="1")
+        self.env = dict(
+            os.environ,
+            PYTHONPATH=os.pathsep.join(sys.path),
+            ANSIBLE_HOME=str(self.root / "home"),
+            ANSIBLE_REMOTE_TEMP=str(self.root / "remote-tmp"),
+            ANSIBLE_LOCAL_TEMP=str(self.root / "tmp"),
+            ANSIBLE_COLLECTIONS_PATH=str(self.root / "collections"),
+            ANSIBLE_NOCOLOR="1",
+        )
 
     def cli(self, module, *args, expected=0):
-        result = subprocess.run([sys.executable, "-m", module, *map(str, args)],
-                                env=self.env, text=True, capture_output=True, timeout=60)
+        result = subprocess.run(
+            [sys.executable, "-m", module, *map(str, args)],
+            env=self.env,
+            text=True,
+            capture_output=True,
+            timeout=60,
+        )
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         return result.stdout + result.stderr
 
@@ -56,8 +66,15 @@ class CollectionTest(unittest.TestCase):
         self.assertEqual(set(manifest), set(PLATFORMS))
         for platform, artifact in manifest.items():
             os_name, arch = platform.split("-")
-            self.assertEqual(artifact["filename"], f"hrc-{arch}-{os_name}-{VERSION}.tar.gz")
-            self.assertEqual(artifact["sha256"], hashlib.sha256((self.artifacts / artifact["filename"]).read_bytes()).hexdigest())
+            self.assertEqual(
+                artifact["filename"], f"hrc-{arch}-{os_name}-{VERSION}.tar.gz"
+            )
+            self.assertEqual(
+                artifact["sha256"],
+                hashlib.sha256(
+                    (self.artifacts / artifact["filename"]).read_bytes()
+                ).hexdigest(),
+            )
         next(self.artifacts.glob("*.tar.gz")).unlink()
         with self.assertRaises(FileNotFoundError):
             release_manifest(self.artifacts)
@@ -70,58 +87,144 @@ class CollectionTest(unittest.TestCase):
         write_manifest(self.artifacts, release)
         stub = self.root / "stub"
         stub.write_text("test fixture")
-        files = {file.relative_to(SOURCE).as_posix(): str(file)
-                 for directory in ("roles", "meta", "vars")
-                 for file in (SOURCE / directory).rglob("*") if file.is_file()}
-        files.update({path: str(stub) for path in (
-            "LICENSE", "roles/install/files/winsw.exe", "roles/install/files/WinSW-LICENSE.txt",
-        )})
-        archive = build_collection({
-            "files": files,
-            "templates": {"README.md": str(SOURCE / "README.md"),
-                          "galaxy.yml": str(SOURCE / "galaxy.yml.tpl"),
-                          "roles/install/vars/release.yml": str(release)},
-            "substitutions": {"@VERSION@": VERSION, "@ARTIFACT_SOURCE@": ARTIFACT_SOURCE},
-            "substitution_files": {}, "stamp_substitutions": {}, "validation": {},
-        }, self.root / "collection.tar.gz")
+        files = {
+            file.relative_to(SOURCE).as_posix(): str(file)
+            for directory in ("roles", "meta", "vars")
+            for file in (SOURCE / directory).rglob("*")
+            if file.is_file()
+        }
+        files.update(
+            {
+                path: str(stub)
+                for path in (
+                    "LICENSE",
+                    "roles/install/files/winsw.exe",
+                    "roles/install/files/WinSW-LICENSE.txt",
+                )
+            }
+        )
+        archive = build_collection(
+            {
+                "files": files,
+                "templates": {
+                    "README.md": str(SOURCE / "README.md"),
+                    "galaxy.yml": str(SOURCE / "galaxy.yml.tpl"),
+                    "roles/install/vars/release.yml": str(release),
+                },
+                "substitutions": {
+                    "@VERSION@": VERSION,
+                    "@ARTIFACT_SOURCE@": ARTIFACT_SOURCE,
+                },
+                "substitution_files": {},
+                "stamp_substitutions": {},
+                "validation": {},
+            },
+            self.root / "collection.tar.gz",
+        )
         with tarfile.open(archive) as collection:
-            metadata = json.load(collection.extractfile("MANIFEST.json"))["collection_info"]
+            metadata = json.load(collection.extractfile("MANIFEST.json"))[
+                "collection_info"
+            ]
             self.assertEqual(metadata["version"], VERSION)
-            self.assertEqual(metadata["documentation"], f"https://dimidiumlabs.io/hrc/doc/{VERSION}/manual/installation.html")
-            self.assertIn(f"https://dimidiumlabs.io/hrc/doc/{VERSION}/manual/installation.html#ansible-collection",
-                          collection.extractfile("README.md").read().decode())
-            self.assertEqual(json.load(collection.extractfile("roles/install/vars/release.yml")), {
-                "_hrc_release_version": VERSION, "_hrc_release_source": ARTIFACT_SOURCE,
-                "_hrc_release_artifacts": release_manifest(self.artifacts)[1],
-            })
+            self.assertEqual(
+                metadata["documentation"],
+                f"https://dimidiumlabs.io/hrc/doc/{VERSION}/manual/installation.html",
+            )
+            self.assertIn(
+                f"https://dimidiumlabs.io/hrc/doc/{VERSION}/manual/installation.html#ansible-collection",
+                collection.extractfile("README.md").read().decode(),
+            )
+            self.assertEqual(
+                json.load(collection.extractfile("roles/install/vars/release.yml")),
+                {
+                    "_hrc_release_version": VERSION,
+                    "_hrc_release_source": ARTIFACT_SOURCE,
+                    "_hrc_release_artifacts": release_manifest(self.artifacts)[1],
+                },
+            )
         for item in (archive, WINDOWS):
-            self.cli("ansible.cli.galaxy", "collection", "install", item, "--no-deps", "--offline", "-p", self.root / "collections")
+            self.cli(
+                "ansible.cli.galaxy",
+                "collection",
+                "install",
+                item,
+                "--no-deps",
+                "--offline",
+                "-p",
+                self.root / "collections",
+            )
 
         # Static imports check modules in every OS branch, unlike dynamic includes.
-        imports = [{"ansible.builtin.import_role": {"name": f"dimidiumlabs.hrc.{role}", "tasks_from": task.name}}
-                   for role in ("install", "remove")
-                   for task in sorted((SOURCE / "roles" / role / "tasks").glob("*.yml"))]
+        imports = [
+            {
+                "ansible.builtin.import_role": {
+                    "name": f"dimidiumlabs.hrc.{role}",
+                    "tasks_from": task.name,
+                }
+            }
+            for role in ("install", "remove")
+            for task in sorted((SOURCE / "roles" / role / "tasks").glob("*.yml"))
+        ]
         play = self.root / "play.yml"
-        play.write_text(yaml.safe_dump([{"hosts": "localhost", "gather_facts": False, "tasks": imports}]))
+        play.write_text(
+            yaml.safe_dump(
+                [{"hosts": "localhost", "gather_facts": False, "tasks": imports}]
+            )
+        )
         self.cli("ansible.cli.playbook", "-i", "localhost,", "--syntax-check", play)
 
         check_root = self.root / "check"
         settings = {
             "ansible_python_interpreter": sys.executable,
-            "ansible_facts": {"system": "Linux", "os_family": "Debian", "architecture": "x86_64", "service_mgr": "systemd"},
-            "_hrc_paths": {"linux": {key: str(check_root / key) for key in ("config", "state", "logs", "bin", "runtime", "service")}},
-            "hrc_config": {"instanceId": "check", "spaces": [{"id": "build"}], "slots": [{"id": "workers", "space": "build"}], "forges": [{"id": "check", "slot": "workers", "type": "github", "url": "https://github.com/org/repo", "pat": {"type": "env", "value": "GITHUB_TOKEN"}}]},
+            "ansible_facts": {
+                "system": "Linux",
+                "os_family": "Debian",
+                "architecture": "x86_64",
+                "service_mgr": "systemd",
+            },
+            "_hrc_paths": {
+                "linux": {
+                    key: str(check_root / key)
+                    for key in ("config", "state", "logs", "bin", "runtime", "service")
+                }
+            },
+            "hrc_config": {
+                "instanceId": "check",
+                "spaces": [{"id": "build"}],
+                "slots": [{"id": "workers", "space": "build"}],
+                "forges": [
+                    {
+                        "id": "check",
+                        "slot": "workers",
+                        "type": "github",
+                        "url": "https://github.com/org/repo",
+                        "pat": {"type": "env", "value": "GITHUB_TOKEN"},
+                    }
+                ],
+            },
             "hrc_secrets": {"test-key": "must-not-appear-in-output"},
             "hrc_artifact_source": str(self.artifacts),
         }
-        play.write_text(yaml.safe_dump([{"hosts": "localhost", "gather_facts": False, "roles": ["dimidiumlabs.hrc.install"]}]))
+        play.write_text(
+            yaml.safe_dump(
+                [
+                    {
+                        "hosts": "localhost",
+                        "gather_facts": False,
+                        "roles": ["dimidiumlabs.hrc.install"],
+                    }
+                ]
+            )
+        )
         args = ("-i", "localhost,", "-c", "local", "-e", json.dumps(settings), play)
         output = self.cli("ansible.cli.playbook", "--check", "--diff", *args)
         self.assertNotIn("must-not-appear-in-output", output)
         self.assertFalse(check_root.exists())
 
         # Reject tampering before extraction or any installation changes.
-        with (self.artifacts / f"hrc-amd64-linux-{VERSION}.tar.gz").open("ab") as stream:
+        with (self.artifacts / f"hrc-amd64-linux-{VERSION}.tar.gz").open(
+            "ab"
+        ) as stream:
             stream.write(b"tampered")
         output = self.cli("ansible.cli.playbook", *args, expected=2)
         self.assertIn("hrc archive SHA-256 mismatch", output)
@@ -136,15 +239,30 @@ class CollectionTest(unittest.TestCase):
 
         # Exercise cleanup without running installation or service operations.
         collection = self.root / "collections/ansible_collections/dimidiumlabs/hrc"
-        play.write_text(yaml.safe_dump([{
-            "hosts": "localhost", "gather_facts": False,
-            "vars_files": [str(collection / "vars/main.yml")],
-            "tasks": [{"ansible.builtin.include_tasks": str(collection / "roles/install/tasks/cleanup.yml")}],
-        }]))
+        play.write_text(
+            yaml.safe_dump(
+                [
+                    {
+                        "hosts": "localhost",
+                        "gather_facts": False,
+                        "vars_files": [str(collection / "vars/main.yml")],
+                        "tasks": [
+                            {
+                                "ansible.builtin.include_tasks": str(
+                                    collection / "roles/install/tasks/cleanup.yml"
+                                )
+                            }
+                        ],
+                    }
+                ]
+            )
+        )
         self.cli("ansible.cli.playbook", "--check", *args)
         self.assertEqual({path.name for path in binaries.iterdir()}, names)
         self.cli("ansible.cli.playbook", *args)
-        self.assertEqual({path.name for path in binaries.iterdir()}, names - {"hrc", "hrc-worker"})
+        self.assertEqual(
+            {path.name for path in binaries.iterdir()}, names - {"hrc", "hrc-worker"}
+        )
         output = self.cli("ansible.cli.playbook", *args)
         self.assertRegex(output, r"\bchanged=0\b")
 

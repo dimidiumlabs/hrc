@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 load("//tools:tools.bzl", "export_tool")
-load(":linter.bzl", "buildifier_file")
+load(":linter.bzl", "buildifier_file", "gofmt_file")
 load(":sources.bzl", "check_sources")
 
 check_sources(sh = ["*.sh"])
@@ -28,7 +28,24 @@ export_tool(
     visibility = ["//visibility:public"],
 )
 
-exports_files([".shellcheckrc"])
+gofmt_file(name = "gofmt_sdk")
+
+export_tool(
+    name = "gofmt",
+    src = ":gofmt_sdk",
+    visibility = ["//visibility:public"],
+)
+
+export_tool(
+    name = "ruff",
+    src = "@aspect_rules_lint//format:ruff",
+    visibility = ["//visibility:public"],
+)
+
+exports_files([
+    ".shellcheckrc",
+    "ruff.toml",
+])
 
 exports_files(
     ["format.py"],

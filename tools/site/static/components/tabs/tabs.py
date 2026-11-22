@@ -22,10 +22,13 @@ class TabsDirective(SphinxDirective):
     def run(self):
         self.assert_has_content()
         panels = self.parse_content_to_nodes(allow_section_headings=True)
-        if len(panels) < 2 or any(not isinstance(panel, nodes.section) for panel in panels):
+        if len(panels) < 2 or any(
+            not isinstance(panel, nodes.section) for panel in panels
+        ):
             raise self.error("tabs requires at least two sections, each with a heading")
         result = Tabs(
-            classes=["tabs"], group=self.options.get("group", ""),
+            classes=["tabs"],
+            group=self.options.get("group", ""),
             label=self.options.get("label", "Platform"),
         )
         for panel in panels:
@@ -36,9 +39,13 @@ class TabsDirective(SphinxDirective):
 
 
 def visit_html(translator, node):
-    translator.body.append(translator.starttag(
-        node, "div", **{"data-tabs-group": node["group"], "data-tabs-label": node["label"]},
-    ))
+    translator.body.append(
+        translator.starttag(
+            node,
+            "div",
+            **{"data-tabs-group": node["group"], "data-tabs-label": node["label"]},
+        )
+    )
 
 
 def depart_html(translator, node):

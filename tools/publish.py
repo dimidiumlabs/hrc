@@ -70,7 +70,10 @@ class Storage:
     @staticmethod
     def conflict(error):
         return error.response["Error"]["Code"] in {
-            "409", "412", "ConditionalRequestConflict", "PreconditionFailed",
+            "409",
+            "412",
+            "ConditionalRequestConflict",
+            "PreconditionFailed",
         }
 
     def immutable(self, key, data, content_type):
@@ -78,15 +81,21 @@ class Storage:
         # may have created this object in the meantime.
         try:
             self.client.put_object(
-                Bucket=self.bucket, Key=key, Body=data, IfNoneMatch="*",
-                ContentType=content_type, CacheControl=IMMUTABLE,
+                Bucket=self.bucket,
+                Key=key,
+                Body=data,
+                IfNoneMatch="*",
+                ContentType=content_type,
+                CacheControl=IMMUTABLE,
                 Metadata={"sha256": digest(data)},
             )
         except ClientError as error:
             if not self.conflict(error):
                 raise
             if self.read(key) != data:
-                raise ValueError(f"Immutable object has different content: {key}") from None
+                raise ValueError(
+                    f"Immutable object has different content: {key}"
+                ) from None
 
 
 def parse_manifest(raw):
@@ -104,13 +113,18 @@ def read_index(storage):
     if raw is None:
         return {"schemaVersion": 1, "channels": {}, "versions": []}, etag
     index = json.loads(raw)
-    if (index["schemaVersion"] != 1 or not isinstance(index["channels"], dict)
-            or not isinstance(index["versions"], list)):
+    if (
+        index["schemaVersion"] != 1
+        or not isinstance(index["channels"], dict)
+        or not isinstance(index["versions"], list)
+    ):
         raise ValueError("Unsupported publication index")
     for version in index["versions"]:
         version_key(version)
-    if any(channel not in {"stable", "dev"} or version not in index["versions"]
-           for channel, version in index["channels"].items()):
+    if any(
+        channel not in {"stable", "dev"} or version not in index["versions"]
+        for channel, version in index["channels"].items()
+    ):
         raise ValueError("Index channels must reference listed versions")
     return index, etag
 
@@ -122,8 +136,11 @@ def update_index(storage, versions, channels=None):
     for _ in range(8):
         index, etag = read_index(storage)
         previous = json.dumps(index, sort_keys=True)
-        index["versions"] = sorted(set(index["versions"]) | versions,
-                                   key=lambda version: (version_key(version), version), reverse=True)
+        index["versions"] = sorted(
+            set(index["versions"]) | versions,
+            key=lambda version: (version_key(version), version),
+            reverse=True,
+        )
         for channel, version in (channels or {}).items():
             if channel not in {"stable", "dev"} or version not in index["versions"]:
                 raise ValueError("Channel must reference a listed version")
@@ -133,16 +150,21 @@ def update_index(storage, versions, channels=None):
                 if old > new:
                     continue
                 if old == new and current != version:
-                    raise ValueError(f"Channel {channel} has a different build with equal version precedence")
+                    raise ValueError(
+                        f"Channel {channel} has a different build with equal version precedence"
+                    )
             index["channels"][channel] = version
         if etag is not None and json.dumps(index, sort_keys=True) == previous:
             return index
         condition = {"IfMatch": etag} if etag is not None else {"IfNoneMatch": "*"}
         try:
             storage.client.put_object(
-                Bucket=storage.bucket, Key=INDEX,
+                Bucket=storage.bucket,
+                Key=INDEX,
                 Body=(json.dumps(index, indent=2, sort_keys=True) + "\n").encode(),
-                ContentType="application/json", CacheControl=INDEX_CACHE, **condition,
+                ContentType="application/json",
+                CacheControl=INDEX_CACHE,
+                **condition,
             )
             return index
         except ClientError as error:
@@ -154,8 +176,15 @@ def update_index(storage, versions, channels=None):
 
 def verify_signature(directory, keyring):
     subprocess.run(
-        ["gpg", "--homedir", str(keyring), "--batch", "--verify",
-         str(directory / "SHASUMS256.asc"), str(directory / "SHASUMS256")],
+        [
+            "gpg",
+            "--homedir",
+            str(keyring),
+            "--batch",
+            "--verify",
+            str(directory / "SHASUMS256.asc"),
+            str(directory / "SHASUMS256"),
+        ],
         check=True,
         env={"PATH": os.environ["PATH"]},
     )
@@ -170,7 +199,12 @@ def publish(storage, directory, manifest, keyring):
         name = artifact["filename"]
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+_-]*", name):
             raise ValueError(f"Invalid artifact filename: {name}")
-        if name in names or name in {"manifest.json", "SHASUMS256", "SHASUMS256.asc", "VERSION"}:
+        if name in names or name in {
+            "manifest.json",
+            "SHASUMS256",
+            "SHASUMS256.asc",
+            "VERSION",
+        }:
             raise ValueError(f"Duplicate or reserved artifact filename: {name}")
         data = (directory / name).read_bytes()
         if len(data) != artifact["size"] or digest(data) != artifact["sha256"]:
@@ -179,7 +213,9 @@ def publish(storage, directory, manifest, keyring):
     if not names:
         raise ValueError("Manifest has no artifacts")
     names.append("manifest.json")
-    expected_sums = "".join(f"{digest((directory / name).read_bytes())}  {name}\n" for name in sorted(names)).encode()
+    expected_sums = "".join(
+        f"{digest((directory / name).read_bytes())}  {name}\n" for name in sorted(names)
+    ).encode()
     if (directory / "SHASUMS256").read_bytes() != expected_sums:
         raise ValueError("SHASUMS256 does not match the complete build")
     verify_signature(directory, keyring)
@@ -194,7 +230,11 @@ def publish(storage, directory, manifest, keyring):
     signature = storage.read(signature_key)
     if signature is None:
         try:
-            storage.immutable(signature_key, (directory / "SHASUMS256.asc").read_bytes(), "application/pgp-signature")
+            storage.immutable(
+                signature_key,
+                (directory / "SHASUMS256.asc").read_bytes(),
+                "application/pgp-signature",
+            )
         except ValueError:
             # Another publisher may have won creation with an equally valid signature.
             signature = storage.read(signature_key)
@@ -204,9 +244,18 @@ def publish(storage, directory, manifest, keyring):
             signature = storage.read(signature_key)
     (directory / "SHASUMS256.asc").write_bytes(signature)
     verify_signature(directory, keyring)
-    for name in [n for n in names if n != "manifest.json"] + ["SHASUMS256", "manifest.json"]:
-        content_type = "application/gzip" if name.endswith(".tar.gz") else mimetypes.guess_type(name)[0] or "text/plain"
-        storage.immutable(f"{prefix}/{name}", (directory / name).read_bytes(), content_type)
+    for name in [n for n in names if n != "manifest.json"] + [
+        "SHASUMS256",
+        "manifest.json",
+    ]:
+        content_type = (
+            "application/gzip"
+            if name.endswith(".tar.gz")
+            else mimetypes.guess_type(name)[0] or "text/plain"
+        )
+        storage.immutable(
+            f"{prefix}/{name}", (directory / name).read_bytes(), content_type
+        )
     update_index(storage, [manifest["version"]])
     print(f"Published {prefix}")
 
@@ -237,13 +286,22 @@ def main():
             if current is not None:
                 old, new = version_key(current), version_key(manifest["version"])
                 if old > new or (old == new and current != manifest["version"]):
-                    raise ValueError("Refusing to replace a newer or conflicting dev publication")
+                    raise ValueError(
+                        "Refusing to replace a newer or conflicting dev publication"
+                    )
         publish(storage, args.input, manifest, args.keyring)
 
 
 if __name__ == "__main__":
     try:
         main()
-    except (ValueError, KeyError, BotoCoreError, ClientError, OSError, subprocess.CalledProcessError) as error:
+    except (
+        ValueError,
+        KeyError,
+        BotoCoreError,
+        ClientError,
+        OSError,
+        subprocess.CalledProcessError,
+    ) as error:
         print(f"publish: {error}", file=sys.stderr)
         sys.exit(1)

@@ -85,15 +85,29 @@ def prepare_assets(app):
     # Only the layer prelude has a fixed position. File order is not cascade order.
     css = ["@layer config, palette, typography, syntax, components;"]
     # Let esbuild resolve each file's URLs relative to that file.
-    css.extend(f'@import "./{path.relative_to(sources).as_posix()}";'
-               for path in sorted(sources.rglob("*.css")))
-    css.append("@layer syntax { .document-content {\n"
-               + app.builder.highlighter.get_stylesheet() + "\n} }")
+    css.extend(
+        f'@import "./{path.relative_to(sources).as_posix()}";'
+        for path in sorted(sources.rglob("*.css"))
+    )
+    css.append(
+        "@layer syntax { .document-content {\n"
+        + app.builder.highlighter.get_stylesheet()
+        + "\n} }"
+    )
     result = subprocess.run(
-        [os.environ["HRC_ESBUILD"], "--loader=css", "--bundle", "--minify",
-         "--loader:.svg=dataurl", "--supported:nesting=false",
-         "--legal-comments=inline", "--charset=utf8"],
-        input="\n".join(css).encode("utf-8"), capture_output=True, cwd=sources,
+        [
+            os.environ["HRC_ESBUILD"],
+            "--loader=css",
+            "--bundle",
+            "--minify",
+            "--loader:.svg=dataurl",
+            "--supported:nesting=false",
+            "--legal-comments=inline",
+            "--charset=utf8",
+        ],
+        input="\n".join(css).encode("utf-8"),
+        capture_output=True,
+        cwd=sources,
     )
     if result.returncode:
         raise RuntimeError("esbuild failed:\n" + result.stderr.decode("utf-8"))
@@ -109,9 +123,19 @@ def prepare_assets(app):
         for path in sorted(sources.rglob("*.ts"))
     )
     result = subprocess.run(
-        [os.environ["HRC_ESBUILD"], "--loader=ts", "--bundle", "--minify",
-         "--format=iife", "--target=es2020", "--legal-comments=inline", "--charset=utf8"],
-        input=scripts.encode("utf-8"), capture_output=True, cwd=sources,
+        [
+            os.environ["HRC_ESBUILD"],
+            "--loader=ts",
+            "--bundle",
+            "--minify",
+            "--format=iife",
+            "--target=es2020",
+            "--legal-comments=inline",
+            "--charset=utf8",
+        ],
+        input=scripts.encode("utf-8"),
+        capture_output=True,
+        cwd=sources,
     )
     if result.returncode:
         raise RuntimeError("esbuild failed:\n" + result.stderr.decode("utf-8"))

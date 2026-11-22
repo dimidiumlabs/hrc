@@ -62,7 +62,11 @@ class PageParser(HTMLParser):
             self.tab_panels.append(attrs)
         if tag == "link" and attrs.get("rel") == "stylesheet":
             self.resources.append(attrs["href"])
-        if tag == "link" and attrs.get("rel") in ("icon", "apple-touch-icon", "manifest"):
+        if tag == "link" and attrs.get("rel") in (
+            "icon",
+            "apple-touch-icon",
+            "manifest",
+        ):
             self.icon_links.append(attrs)
 
     def handle_endtag(self, tag):
@@ -91,11 +95,21 @@ class SiteTest(unittest.TestCase):
         with tarfile.open(archives[0]) as site:
             files = {
                 posixpath.normpath(member.name): member
-                for member in site.getmembers() if member.isfile()
+                for member in site.getmembers()
+                if member.isfile()
             }
-            for docname in ("index", "manual/index", "manual/host-preparation",
-                            "manual/github-auth", "manual/installation", "manual/workflows",
-                            "manual/operation", "manual/upgrading", "manual/removal", "configuration"):
+            for docname in (
+                "index",
+                "manual/index",
+                "manual/host-preparation",
+                "manual/github-auth",
+                "manual/installation",
+                "manual/workflows",
+                "manual/operation",
+                "manual/upgrading",
+                "manual/removal",
+                "configuration",
+            ):
                 for suffix in (".html", ".txt"):
                     name = docname + suffix
                     with self.subTest(file=name):
@@ -108,7 +122,8 @@ class SiteTest(unittest.TestCase):
             self.assertRegex(stylesheet, r"^_static/site\.[0-9a-f]{16}\.css$")
             css = site.extractfile(files[stylesheet]).read()
             self.assertEqual(
-                stylesheet, f"_static/site.{hashlib.sha256(css).hexdigest()[:16]}.css",
+                stylesheet,
+                f"_static/site.{hashlib.sha256(css).hexdigest()[:16]}.css",
             )
             self.assertIn(b"@layer config,palette,typography,syntax,components;", css)
             self.assertIn(b"@layer syntax{", css)
@@ -117,9 +132,16 @@ class SiteTest(unittest.TestCase):
             self.assertIn(b".highlight", css)
             self.assertIn(b"data:image/svg+xml", css)
             self.assertNotIn(b"@import", css)
-            self.assertEqual([name for name in files if name.endswith(".svg")], ["favicon.svg"])
+            self.assertEqual(
+                [name for name in files if name.endswith(".svg")], ["favicon.svg"]
+            )
             self.assertIn(b"SPDX-License-Identifier", css)
-            self.assertFalse(any(name.endswith((".html", ".css")) and "components/" in name for name in files))
+            self.assertFalse(
+                any(
+                    name.endswith((".html", ".css")) and "components/" in name
+                    for name in files
+                )
+            )
             self.assertNotIn("_static/basic.css", files)
             self.assertNotIn("search.html", files)
             self.assertNotIn("usage.html", files)
@@ -129,21 +151,37 @@ class SiteTest(unittest.TestCase):
             script = scripts[0]
             self.assertRegex(script, r"^_static/site\.[0-9a-f]{16}\.js$")
             js = site.extractfile(files[script]).read()
-            self.assertEqual(script, f"_static/site.{hashlib.sha256(js).hexdigest()[:16]}.js")
+            self.assertEqual(
+                script, f"_static/site.{hashlib.sha256(js).hexdigest()[:16]}.js"
+            )
             self.assertNotIn(b"sourceMappingURL", js)
             runtime = subprocess.run(
-                [sys.argv[1], sys.argv[2]], input=js, capture_output=True, timeout=30,
+                [sys.argv[1], sys.argv[2]],
+                input=js,
+                capture_output=True,
+                timeout=30,
             )
-            self.assertEqual(runtime.returncode, 0, runtime.stdout.decode() + runtime.stderr.decode())
-            self.assertFalse(any(name.endswith((".ts", ".py", ".cjs")) for name in files))
+            self.assertEqual(
+                runtime.returncode, 0, runtime.stdout.decode() + runtime.stderr.decode()
+            )
+            self.assertFalse(
+                any(name.endswith((".ts", ".py", ".cjs")) for name in files)
+            )
             self.assertIn(b"@media print", css)
             favicon = ET.fromstring(site.extractfile(files["favicon.svg"]).read())
             self.assertEqual(favicon.attrib["fill"], "#00afaf")
             self.assertEqual(favicon.attrib["viewBox"], "0 0 500 500")
             for element in favicon.iter():
-                self.assertIn(element.tag, ("{http://www.w3.org/2000/svg}svg",
-                                            "{http://www.w3.org/2000/svg}path"))
-                self.assertFalse(any(key.lower().startswith("on") for key in element.attrib))
+                self.assertIn(
+                    element.tag,
+                    (
+                        "{http://www.w3.org/2000/svg}svg",
+                        "{http://www.w3.org/2000/svg}path",
+                    ),
+                )
+                self.assertFalse(
+                    any(key.lower().startswith("on") for key in element.attrib)
+                )
 
             png_sizes = {
                 "apple-touch-icon.png": 180,
@@ -167,13 +205,23 @@ class SiteTest(unittest.TestCase):
                 self.assertGreater(entry[6], 0)
                 self.assertLessEqual(entry[7] + entry[6], len(ico))
 
-            manifest = json.loads(site.extractfile(files["manifest.webmanifest"]).read())
+            manifest = json.loads(
+                site.extractfile(files["manifest.webmanifest"]).read()
+            )
             self.assertEqual(manifest["name"], "Hosted Runner Controller")
-            self.assertEqual(manifest["icons"], [
-                {"src": "icon-192.png", "type": "image/png", "sizes": "192x192"},
-                {"src": "icon-512.png", "type": "image/png", "sizes": "512x512"},
-                {"src": "icon-mask.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable"},
-            ])
+            self.assertEqual(
+                manifest["icons"],
+                [
+                    {"src": "icon-192.png", "type": "image/png", "sizes": "192x192"},
+                    {"src": "icon-512.png", "type": "image/png", "sizes": "512x512"},
+                    {
+                        "src": "icon-mask.png",
+                        "type": "image/png",
+                        "sizes": "512x512",
+                        "purpose": "maskable",
+                    },
+                ],
+            )
             for icon in manifest["icons"]:
                 self.assertIn(icon["src"], files)
 
@@ -186,27 +234,43 @@ class SiteTest(unittest.TestCase):
                     page = PageParser()
                     page.feed(html)
                     pages[name] = page
-                    self.assertEqual(page.viewports, ["width=device-width, initial-scale=1"])
+                    self.assertEqual(
+                        page.viewports, ["width=device-width, initial-scale=1"]
+                    )
                     footer = " ".join("".join(page.footer_text).split())
                     header = " ".join("".join(page.header_text).split())
                     self.assertIn(f"Version {version}", header)
                     self.assertNotIn(f"Version {version}", footer)
                     self.assertIn("Documentation: CC BY 4.0", footer)
                     self.assertIn("main-content", page.ids)
-                    self.assertTrue("".join(page.title_text).endswith(" · Hosted Runner Controller"))
-                    self.assertIn("https://github.com/dimidiumlabs/hrc", page.header_links)
+                    self.assertTrue(
+                        "".join(page.title_text).endswith(" · Hosted Runner Controller")
+                    )
+                    self.assertIn(
+                        "https://github.com/dimidiumlabs/hrc", page.header_links
+                    )
                     self.assertEqual(len(page.header_links), 2)
                     self.assertNotIn("site-sidebar__title", html)
-                    self.assertEqual({
-                        (link["rel"], posixpath.normpath(posixpath.join(
-                            posixpath.dirname(name), link["href"],
-                        ))) for link in page.icon_links
-                    }, {
-                        ("icon", "favicon.ico"),
-                        ("icon", "favicon.svg"),
-                        ("apple-touch-icon", "apple-touch-icon.png"),
-                        ("manifest", "manifest.webmanifest"),
-                    })
+                    self.assertEqual(
+                        {
+                            (
+                                link["rel"],
+                                posixpath.normpath(
+                                    posixpath.join(
+                                        posixpath.dirname(name),
+                                        link["href"],
+                                    )
+                                ),
+                            )
+                            for link in page.icon_links
+                        },
+                        {
+                            ("icon", "favicon.ico"),
+                            ("icon", "favicon.svg"),
+                            ("apple-touch-icon", "apple-touch-icon.png"),
+                            ("manifest", "manifest.webmanifest"),
+                        },
+                    )
                     self.assertEqual(len(page.icon_links), 4)
                     self.assertEqual(len(page.resources), 2 if page.tabs else 1)
                     self.assertTrue(page.resources[0].endswith(stylesheet))
@@ -216,17 +280,31 @@ class SiteTest(unittest.TestCase):
                         self.assertIn("defer", page.scripts[0])
                         self.assertTrue(page.tab_panels)
                         for tabs in page.tabs:
-                            self.assertIn(tabs["data-tabs-group"], (
-                                "host-platform", "command-shell", "operating-system",
-                            ))
+                            self.assertIn(
+                                tabs["data-tabs-group"],
+                                (
+                                    "host-platform",
+                                    "command-shell",
+                                    "operating-system",
+                                ),
+                            )
                             self.assertIn("data-tabs-label", tabs)
                             self.assertNotIn("data-enhanced", tabs)
                         for panel in page.tab_panels:
                             self.assertIn("id", panel)
                             self.assertNotIn("hidden", panel)
                             self.assertNotIn("role", panel)
-                        text = site.extractfile(files[name.removesuffix(".html") + ".txt"]).read().decode("utf-8")
-                        for label in ("Windows", "macOS", "Linux / Systemd", "Linux / OpenRC"):
+                        text = (
+                            site.extractfile(files[name.removesuffix(".html") + ".txt"])
+                            .read()
+                            .decode("utf-8")
+                        )
+                        for label in (
+                            "Windows",
+                            "macOS",
+                            "Linux / Systemd",
+                            "Linux / OpenRC",
+                        ):
                             self.assertIn(label, html)
                             self.assertIn(label, text)
                         if name == "manual/installation.html":
@@ -234,11 +312,24 @@ class SiteTest(unittest.TestCase):
                                 self.assertNotIn("@HRC_VERSION@", rendered)
                                 self.assertNotIn("index.json", rendered)
                             self.assertNotIn("$version", text)
-                            self.assertEqual(text.count(f"https://pkg.dimidiumlabs.io/hrc/builds/{version}"), 4)
-                            self.assertIn(f'archive="ansible-collection-{version}.tar.gz"', text)
-                            self.assertIn(f'$archive = "hrc-$arch-windows-{version}.tar.gz"', text)
-                            self.assertIn(f'archive="hrc-$arch-darwin-{version}.tar.gz"', text)
-                            self.assertIn(f'archive="hrc-$arch-linux-{version}.tar.gz"', text)
+                            self.assertEqual(
+                                text.count(
+                                    f"https://pkg.dimidiumlabs.io/hrc/builds/{version}"
+                                ),
+                                4,
+                            )
+                            self.assertIn(
+                                f'archive="ansible-collection-{version}.tar.gz"', text
+                            )
+                            self.assertIn(
+                                f'$archive = "hrc-$arch-windows-{version}.tar.gz"', text
+                            )
+                            self.assertIn(
+                                f'archive="hrc-$arch-darwin-{version}.tar.gz"', text
+                            )
+                            self.assertIn(
+                                f'archive="hrc-$arch-linux-{version}.tar.gz"', text
+                            )
                             self.assertNotIn("Git Bash", text)
                             self.assertNotIn("MINGW", text)
                     self.assertNotIn("basic.css", html)
@@ -248,9 +339,12 @@ class SiteTest(unittest.TestCase):
                         url = urlsplit(resource)
                         if url.scheme or url.netloc:
                             continue
-                        target = posixpath.normpath(posixpath.join(
-                            posixpath.dirname(name), unquote(url.path),
-                        ))
+                        target = posixpath.normpath(
+                            posixpath.join(
+                                posixpath.dirname(name),
+                                unquote(url.path),
+                            )
+                        )
                         self.assertIn(target, files, resource)
 
             self.assertFalse(any("/_includes/" in name for name in files))
@@ -259,9 +353,16 @@ class SiteTest(unittest.TestCase):
                     url = urlsplit(link)
                     if url.scheme or url.netloc:
                         continue
-                    target = name if not url.path else posixpath.normpath(posixpath.join(
-                        posixpath.dirname(name), unquote(url.path),
-                    ))
+                    target = (
+                        name
+                        if not url.path
+                        else posixpath.normpath(
+                            posixpath.join(
+                                posixpath.dirname(name),
+                                unquote(url.path),
+                            )
+                        )
+                    )
                     with self.subTest(page=name, link=link):
                         self.assertIn(target, files)
                         if url.fragment and target in pages:

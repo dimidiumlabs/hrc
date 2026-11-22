@@ -11,6 +11,14 @@ _FORMATTERS = {
     # Sandboxed checks must not depend on an undeclared Git checkout.
     "disable_git_attribute_checks": True,
 
+    # Go uses the same pinned SDK as the build, without gofumpt/goimports policy.
+    "go": "//tools/check:gofmt",
+
+    # Formatting only: no lint fixes, import sorting or docstring code rewrites.
+    "python": "//tools/check:ruff",
+    "python_check_args": ["format", "--check", "--diff", "--no-cache", "--config=tools/check/ruff.toml"],
+    "python_fix_args": ["format", "--no-cache", "--config=tools/check/ruff.toml"],
+
     # sh checks
     "shell": "@aspect_rules_lint//format:shfmt",
     "shell_check_args": ["--diff", "-i", "2"],
@@ -54,7 +62,7 @@ def repository_format(name, srcs, visibility = None):
         name = name,
         srcs = [Label(":format.py")],
         main = Label(":format.py"),
-        data = srcs + [":" + tools, ":" + tools + ".check", ":" + manifest],
+        data = srcs + [":" + tools, ":" + tools + ".check", ":" + manifest, Label(":ruff.toml")],
         deps = ["@rules_python//python/runfiles"],
         env = {
             "FORMAT_CHECK": "$(rlocationpath :" + tools + ".check)",

@@ -54,7 +54,9 @@ def archive(directory, output):
         with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
             with tarfile.open(fileobj=compressed, mode="w") as package:
                 for path in sorted(directory.rglob("*")):
-                    info = package.gettarinfo(str(path), path.relative_to(directory).as_posix())
+                    info = package.gettarinfo(
+                        str(path), path.relative_to(directory).as_posix()
+                    )
                     info.uid = info.gid = info.mtime = 0
                     info.uname = info.gname = ""
                     info.mode = 0o755 if info.isdir() else 0o644
@@ -70,8 +72,12 @@ def parse_args(argv=None):
     # our internal build hooks, without consuming abbreviations of its flags.
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     hooks = parser.add_mutually_exclusive_group()
-    hooks.add_argument("--stage", nargs=2, type=Path, metavar=("WORKSPACE", "DESTINATION"))
-    hooks.add_argument("--text", nargs=3, type=Path, metavar=("WORKSPACE", "SOURCE", "OUTPUT"))
+    hooks.add_argument(
+        "--stage", nargs=2, type=Path, metavar=("WORKSPACE", "DESTINATION")
+    )
+    hooks.add_argument(
+        "--text", nargs=3, type=Path, metavar=("WORKSPACE", "SOURCE", "OUTPUT")
+    )
     hooks.add_argument("--archive", nargs=2, type=Path, metavar=("DIRECTORY", "OUTPUT"))
     args, forwarded = parser.parse_known_args(argv)
     if (args.stage or args.text or args.archive) and forwarded:
@@ -98,21 +104,34 @@ def main():
         from sphinx.cmd.build import build_main
 
         workspace, source, output = args.text
-        sys.exit(build_main([
-            "-b", "text", "-n", "-W", "--keep-going",
-            "-c", str(workspace / "tools/site"),
-            "-d", str(output.parent / "text-doctrees"),
-            str(source), str(output),
-        ]))
+        sys.exit(
+            build_main(
+                [
+                    "-b",
+                    "text",
+                    "-n",
+                    "-W",
+                    "--keep-going",
+                    "-c",
+                    str(workspace / "tools/site"),
+                    "-d",
+                    str(output.parent / "text-doctrees"),
+                    str(source),
+                    str(output),
+                ]
+            )
+        )
 
     from sphinx_autobuild.__main__ import main as autobuild
     from python.runfiles import runfiles
 
     files = runfiles.Create()
     os.environ["HRC_ESBUILD"] = files.Rlocation(os.environ["HRC_ESBUILD_RUNFILE"])
-    os.environ["HRC_DOCS_VERSION"] = Path(
-        files.Rlocation(os.environ["HRC_DOCS_VERSION_RUNFILE"])
-    ).read_text().strip()
+    os.environ["HRC_DOCS_VERSION"] = (
+        Path(files.Rlocation(os.environ["HRC_DOCS_VERSION_RUNFILE"]))
+        .read_text()
+        .strip()
+    )
     workspace = Path(os.environ["BUILD_WORKSPACE_DIRECTORY"])
     # Autobuild runs Sphinx in a child interpreter: preserve Bazel's imports.
     os.environ["PYTHONPATH"] = os.pathsep.join(sys.path)
@@ -120,25 +139,49 @@ def main():
     with tempfile.TemporaryDirectory(prefix="hrc-site-") as directory:
         source = Path(directory) / "src"
         source.mkdir()
-        autobuild([
-            str(source), str(Path(directory) / "html"),
-            "-c", str(workspace / "tools/site"),
-            "-n", "-a", "-E",
-            "--watch", str(workspace / "docs"),
-            "--watch", str(workspace / "tools/site"),
-            "--watch", str(workspace / "LICENSES"),
-            "--ignore", "*/internal/*",
-            "--ignore", str(source),
-            "--pre-build", shlex.join([
-                sys.executable, str(Path(__file__).resolve()),
-                "--stage", str(workspace), str(source),
-            ]),
-            "--post-build", shlex.join([
-                sys.executable, str(Path(__file__).resolve()),
-                "--text", str(workspace), str(source), str(Path(directory) / "html"),
-            ]),
-            *forwarded,
-        ])
+        autobuild(
+            [
+                str(source),
+                str(Path(directory) / "html"),
+                "-c",
+                str(workspace / "tools/site"),
+                "-n",
+                "-a",
+                "-E",
+                "--watch",
+                str(workspace / "docs"),
+                "--watch",
+                str(workspace / "tools/site"),
+                "--watch",
+                str(workspace / "LICENSES"),
+                "--ignore",
+                "*/internal/*",
+                "--ignore",
+                str(source),
+                "--pre-build",
+                shlex.join(
+                    [
+                        sys.executable,
+                        str(Path(__file__).resolve()),
+                        "--stage",
+                        str(workspace),
+                        str(source),
+                    ]
+                ),
+                "--post-build",
+                shlex.join(
+                    [
+                        sys.executable,
+                        str(Path(__file__).resolve()),
+                        "--text",
+                        str(workspace),
+                        str(source),
+                        str(Path(directory) / "html"),
+                    ]
+                ),
+                *forwarded,
+            ]
+        )
 
 
 if __name__ == "__main__":

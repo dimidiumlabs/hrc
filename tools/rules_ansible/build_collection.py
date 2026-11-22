@@ -19,7 +19,11 @@ def build_collection(spec: dict, output: Path) -> Path:
     for token, filename in spec["substitution_files"].items():
         substitutions[token] = Path(filename).read_text().strip()
     if spec["stamp_substitutions"]:
-        status = dict(line.split(" ", 1) for line in Path(spec["status_file"]).read_text().splitlines() if " " in line)
+        status = dict(
+            line.split(" ", 1)
+            for line in Path(spec["status_file"]).read_text().splitlines()
+            if " " in line
+        )
         for token, key in spec["stamp_substitutions"].items():
             substitutions[token] = status[key]
     for token, pattern in spec["validation"].items():
@@ -33,7 +37,11 @@ def build_collection(spec: dict, output: Path) -> Path:
         for kind in ("files", "templates"):
             for destination, source in spec[kind].items():
                 relative = PurePosixPath(destination)
-                if relative.is_absolute() or ".." in relative.parts or "\\" in destination:
+                if (
+                    relative.is_absolute()
+                    or ".." in relative.parts
+                    or "\\" in destination
+                ):
                     raise ValueError(f"Invalid collection destination: {destination}")
                 target = stage / destination
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -48,15 +56,31 @@ def build_collection(spec: dict, output: Path) -> Path:
         build_output.mkdir()
         config = root / "ansible.cfg"
         config.write_text("[defaults]\n")
-        env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path),
-                   ANSIBLE_CONFIG=str(config), ANSIBLE_HOME=str(root / "home"))
-        subprocess.run([
-            sys.executable, "-m", "ansible.cli.galaxy", "collection", "build",
-            str(stage), "--output-path", str(build_output),
-        ], check=True, env=env)
+        env = dict(
+            os.environ,
+            PYTHONPATH=os.pathsep.join(sys.path),
+            ANSIBLE_CONFIG=str(config),
+            ANSIBLE_HOME=str(root / "home"),
+        )
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ansible.cli.galaxy",
+                "collection",
+                "build",
+                str(stage),
+                "--output-path",
+                str(build_output),
+            ],
+            check=True,
+            env=env,
+        )
         archives = list(build_output.glob("*.tar.gz"))
         if len(archives) != 1:
-            raise ValueError("Expected exactly one collection archive from ansible-galaxy")
+            raise ValueError(
+                "Expected exactly one collection archive from ansible-galaxy"
+            )
         output.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(archives[0], output)
     return output
