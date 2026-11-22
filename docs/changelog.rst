@@ -8,6 +8,9 @@ Notable changes to hrc, in the format of
 `Unreleased`_
 -------------
 
+`0.5.0`_ - 2026-11-22
+---------------------
+
 Added
 ~~~~~
 
@@ -24,18 +27,29 @@ Changed
   Existing configurations must be migrated: ``id`` becomes ``instanceId``,
   ``reuseDirs`` is replaced by the inverse ``slots[].ephemeral``, and directory
   settings move to ``directories.runtime``, ``directories.spaces`` and
-  ``directories.logs``. Leave host capacity unassigned to replace ``reserve``.
+  ``directories.logs``. Group ``name`` becomes forge ``id``, and group ``quota``
+  moves to its slot pool. Leave host capacity unassigned to replace ``reserve``.
+  Slot pools default to reusable slots (``ephemeral: false``); set it explicitly
+  to true to retain the previous default of cleaning up after every job.
+- Allow multiple GitHub forges to share a slot pool's capacity and reusable
+  workspaces. Currently, each space supports at most one slot pool.
 - Rename the controller executable to ``hrcd`` and the GitHub Worker to
   ``hrcw-github``. Run each host space in a separate ``hrcs`` scheduler process,
   communicating with the controller over local gRPC. Update service definitions
-  and ensure all three executables are on the service PATH when upgrading.
-  Release archives and service names remain ``hrc``.
+  and install all three executables together when upgrading. Release archives
+  and service names remain ``hrc``. The Ansible install role removes the obsolete
+  ``hrc`` and ``hrc-worker`` binaries.
+- Let the controller coordinate graceful shutdown under systemd with
+  ``KillMode=mixed``, retaining whole-cgroup termination on shutdown timeout.
 - Move the repository to the ``dimidiumlabs`` GitHub organization.
 - Update Bazel to 9.3.2 and refresh Go, Python and CI dependencies.
 
 Fixed
 ~~~~~
 
+- Resolve ``hrcs`` and ``hrcw-github`` beside the real executable before falling
+  back to PATH, so services with a minimal PATH can find the matching installed
+  components, including when the controller is launched through a symlink.
 - Handle child processes that exit during Windows process-group cleanup without
   reporting spurious cleanup failures.
 - Improve propagation of slot and space failures and handling of jobs that
@@ -161,7 +175,8 @@ Builds for ``amd64`` and ``arm64`` on Linux, macOS and Windows, bundling GitHub
 Actions runner 2.338.0, with checksums in ``SHASUMS256.txt`` and build provenance
 attestations.
 
-.. _Unreleased: https://github.com/dimidiumlabs/hrc/compare/release-0.4.0...HEAD
+.. _Unreleased: https://github.com/dimidiumlabs/hrc/compare/release-0.5.0...HEAD
+.. _0.5.0: https://github.com/dimidiumlabs/hrc/compare/release-0.4.0...release-0.5.0
 .. _0.4.0: https://github.com/dimidiumlabs/hrc/compare/release-0.3.0...release-0.4.0
 .. _0.3.0: https://github.com/dimidiumlabs/hrc/compare/release-0.2.0...release-0.3.0
 .. _0.2.0: https://github.com/dimidiumlabs/hrc/compare/release-0.1.1...release-0.2.0
