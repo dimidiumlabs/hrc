@@ -8,6 +8,18 @@ Notable changes to hrc, in the format of
 `Unreleased`_
 -------------
 
+Added
+~~~~~
+
+- ``subcommand`` secret source, optional cache ``ttl`` for all secret sources,
+  and externally signed GitHub App JWT authentication via ``jwt``.
+
+Changed
+~~~~~~~
+
+- Reread GitHub credentials on authentication renewal; require exactly one of
+  ``app``, ``pat`` or ``jwt``.
+
 `0.5.0`_ - 2026-11-22
 ---------------------
 

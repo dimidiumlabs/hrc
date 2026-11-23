@@ -4,6 +4,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -24,14 +25,14 @@ func checkError(t *testing.T, err error, want string) {
 
 func TestSecretValidate(t *testing.T) {
 	for _, tt := range []struct {
-		secret Secret
+		secret *Secret
 		want   string
 	}{
-		{Secret{"inline", "token"}, ""},
-		{Secret{"file", "/token"}, ""},
-		{Secret{"env", "TOKEN"}, ""},
-		{Secret{"unknown", "token"}, "secret type"},
-		{Secret{"inline", ""}, "secret value"},
+		{&Secret{Src: "inline", Value: "token"}, ""},
+		{&Secret{Src: "file", Value: "/token"}, ""},
+		{&Secret{Src: "env", Value: "TOKEN"}, ""},
+		{&Secret{Src: "unknown", Value: "token"}, "secret type"},
+		{&Secret{Src: "inline", Value: ""}, "secret value"},
 	} {
 		t.Run(tt.secret.Src+"/"+tt.secret.Value, func(t *testing.T) {
 			checkError(t, tt.secret.Validate(), tt.want)
@@ -59,18 +60,18 @@ func TestSecretTake(t *testing.T) {
 	}
 	t.Setenv("HRC_TEST_SECRET", " token\n")
 	for _, tt := range []struct {
-		secret    Secret
+		secret    *Secret
 		want, err string
 	}{
-		{secret: Secret{"inline", "token"}, want: "token"},
-		{secret: Secret{"env", "HRC_TEST_SECRET"}, want: "token"},
-		{secret: Secret{"env", "HRC_TEST_UNSET_SECRET"}, err: "is empty"},
-		{secret: Secret{"file", key}, want: "-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----"},
-		{secret: Secret{"file", blank}, err: "is empty"},
-		{secret: Secret{"file", filepath.Join(dir, "missing")}},
+		{secret: &Secret{Src: "inline", Value: "token"}, want: "token"},
+		{secret: &Secret{Src: "env", Value: "HRC_TEST_SECRET"}, want: "token"},
+		{secret: &Secret{Src: "env", Value: "HRC_TEST_UNSET_SECRET"}, err: "is empty"},
+		{secret: &Secret{Src: "file", Value: key}, want: "-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----"},
+		{secret: &Secret{Src: "file", Value: blank}, err: "is empty"},
+		{secret: &Secret{Src: "file", Value: filepath.Join(dir, "missing")}},
 	} {
 		t.Run(tt.secret.Src+"/"+filepath.Base(tt.secret.Value), func(t *testing.T) {
-			got, err := tt.secret.Take()
+			got, err := tt.secret.Take(context.Background())
 			if filepath.Base(tt.secret.Value) == "missing" {
 				// The message differs between platforms; the error does not.
 				if !errors.Is(err, os.ErrNotExist) {

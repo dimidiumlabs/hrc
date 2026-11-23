@@ -28,6 +28,7 @@ go_library(
         "//internal/provider-github/listener",
         "//internal/provider-github/worker",
         "@com_github_actions_scaleset//:scaleset",
+        "@com_github_golang_jwt_jwt_v5//:jwt",
     ],
 )
 
@@ -42,5 +43,6 @@ go_test(
         "//internal/provider-github/listener",
         "//internal/provider-github/worker",
         "@com_github_actions_scaleset//:scaleset",
+        "@com_github_golang_jwt_jwt_v5//:jwt",
     ],
 )

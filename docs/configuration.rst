@@ -156,11 +156,14 @@ The common forge ``id`` is used as the GitHub scale set name.
    * - ``app``
      - Not set
      - GitHub App credentials: ``clientId`` (string), ``installationId`` (positive integer), and ``privateKey`` (secret object).
+   * - ``jwt``
+     - Not set
+     - Externally signed GitHub App JWT: ``installationId`` (positive integer) and ``token`` (secret object).
    * - ``runnerVersion``
      - Runner version pinned at build time
      - GitHub Runner protocol version advertised by this queue.
 
-Supply either ``pat`` or ``app``. If both mappings validate, hrc selects the App.
+Supply exactly one of ``pat``, ``app`` or ``jwt``.
 See `GitHub access <./manual/github-auth.rst>`__ for credential setup and permissions.
 Changing labels recreates the scale set on startup, rather than updating it in
 place. Other hosts using the same scale set should agree on its labels.
@@ -201,7 +204,7 @@ runner slot. See `Workspaces and cleanup
 Secrets
 -------
 
-``pat`` and ``app.privateKey`` use the same object format:
+``pat``, ``app.privateKey`` and ``jwt.token`` use the same object format:
 
 .. code-block:: yaml
 
@@ -219,6 +222,15 @@ Secrets
      - Name of an environment variable in the controller's environment.
    * - ``inline``
      - The secret itself. Anyone who can read the configuration can read it.
+
+For ``type: subcommand``, replace ``value`` with ``command: [executable, arg, ...]``.
+The command runs without a shell; stdout is the secret. ``timeout`` defaults to ``30s``.
+
+Every source accepts a cache ``ttl``, such as ``5m``; omitted or zero disables
+caching. Expired values are reread on demand, not on a timer.
+
+External JWTs require RS256 and ``iss``, ``iat``, ``exp`` claims. JWTs with less
+than 30 seconds remaining are reread regardless of TTL.
 
 Leading and trailing whitespace is removed from secret values; an empty secret
 is an error. Services do not inherit your interactive shell's ``GITHUB_TOKEN``.

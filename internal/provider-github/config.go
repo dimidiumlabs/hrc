@@ -39,17 +39,19 @@ func (a *GitHubApp) Validate() error {
 	return nil
 }
 
-// auth reads the private key, which is kept only as long as the client.
-func (a *GitHubApp) auth() (scaleset.GitHubAppAuth, error) {
-	key, err := a.PrivateKey.Take()
-	if err != nil {
-		return scaleset.GitHubAppAuth{}, fmt.Errorf("read private key: %w", err)
+type GitHubJWT struct {
+	InstallationID int64         `json:"installationId"`
+	Token          config.Secret `json:"token"`
+}
+
+func (a *GitHubJWT) Validate() error {
+	if a.InstallationID <= 0 {
+		return fmt.Errorf("installation ID is required")
 	}
-	return scaleset.GitHubAppAuth{
-		PrivateKey:     key,
-		ClientID:       a.ClientID,
-		InstallationID: a.InstallationID,
-	}, nil
+	if err := a.Token.Validate(); err != nil {
+		return fmt.Errorf("invalid JWT token: %w", err)
+	}
+	return nil
 }
 
 type ForgeConfig struct {
@@ -62,6 +64,7 @@ type ForgeConfig struct {
 
 	Token     config.Secret `json:"pat"`
 	GitHubApp GitHubApp     `json:"app"`
+	GitHubJWT GitHubJWT     `json:"jwt"`
 }
 
 func (c *ForgeConfig) defaults() {
@@ -98,13 +101,36 @@ func (c *ForgeConfig) Validate() (err error) {
 		}
 	}
 
-	tknError := c.Token.Validate()
-	appError := c.GitHubApp.Validate()
-	if tknError != nil && appError != nil {
-		return fmt.Errorf("no credentials provided: either GitHub App (client id, installation id and private key) (recommended) or a Personal Access Token are required")
+	pat := secretConfigured(&c.Token)
+	app := c.GitHubApp.ClientID != "" || c.GitHubApp.InstallationID != 0 || secretConfigured(&c.GitHubApp.PrivateKey)
+	jwt := c.GitHubJWT.InstallationID != 0 || secretConfigured(&c.GitHubJWT.Token)
+	count := 0
+	for _, present := range []bool{pat, app, jwt} {
+		if present {
+			count++
+		}
 	}
-
+	if count == 0 {
+		return fmt.Errorf("no credentials provided: supply exactly one of app, pat or jwt")
+	}
+	if count != 1 {
+		return fmt.Errorf("supply exactly one of app, pat or jwt")
+	}
+	switch {
+	case pat:
+		if err := c.Token.Validate(); err != nil {
+			return fmt.Errorf("invalid PAT: %w", err)
+		}
+	case app:
+		return c.GitHubApp.Validate()
+	case jwt:
+		return c.GitHubJWT.Validate()
+	}
 	return nil
+}
+
+func secretConfigured(secret *config.Secret) bool {
+	return secret.Src != "" || secret.Value != "" || len(secret.Command) != 0 || secret.TTL != "" || secret.Timeout != ""
 }
 
 // NewQueue binds this Forge's connection settings to the daemon identity.
@@ -120,23 +146,7 @@ func (c *ForgeConfig) NewQueue(id, version string) (provider.Queue, error) {
 		ID: id, Name: string(c.ID), Group: c.Group, Labels: c.Labels,
 		Version: version, RunnerVersion: runnerVersion,
 		NewClient: func() (*scaleset.Client, error) {
-			info := scaleset.SystemInfo{System: "hrc", Version: version}
-			if c.GitHubApp.Validate() == nil {
-				auth, err := c.GitHubApp.auth()
-				if err != nil {
-					return nil, err
-				}
-				return scaleset.NewClientWithGitHubApp(scaleset.ClientWithGitHubAppConfig{
-					GitHubConfigURL: c.Url, GitHubAppAuth: auth, SystemInfo: info,
-				})
-			}
-			token, err := c.Token.Take()
-			if err != nil {
-				return nil, fmt.Errorf("read token: %w", err)
-			}
-			return scaleset.NewClientWithPersonalAccessToken(scaleset.NewClientWithPersonalAccessTokenConfig{
-				GitHubConfigURL: c.Url, PersonalAccessToken: token, SystemInfo: info,
-			})
+			return c.newClient(scaleset.SystemInfo{System: "hrc", Version: version})
 		},
 	})
 }

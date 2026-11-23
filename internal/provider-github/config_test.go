@@ -4,6 +4,7 @@
 package github
 
 import (
+	"context"
 	"encoding/json/v2"
 	"os"
 	"path/filepath"
@@ -36,7 +37,7 @@ func TestForgeValidate(t *testing.T) {
 			g.Token = config.Secret{}
 			g.GitHubApp.ClientID = "client"
 			g.GitHubApp.InstallationID = 1
-			g.GitHubApp.PrivateKey = config.Secret{"inline", "key"}
+			g.GitHubApp.PrivateKey = config.Secret{Src: "inline", Value: "key"}
 		}, ""},
 		{"URL", func(g *ForgeConfig) { g.Url = "://invalid" }, "invalid registration URL"},
 		{"relative URL", func(g *ForgeConfig) { g.Url = "/org/repo" }, "invalid registration URL"},
@@ -49,10 +50,10 @@ func TestForgeValidate(t *testing.T) {
 		{"app without key", func(g *ForgeConfig) {
 			g.Token = config.Secret{}
 			g.GitHubApp = GitHubApp{ClientID: "client", InstallationID: 1}
-		}, "no credentials provided"},
+		}, "invalid private key"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			g := ForgeConfig{Url: "https://github.com/org/repo", Token: config.Secret{"inline", "token"}}
+			g := ForgeConfig{Url: "https://github.com/org/repo", Token: config.Secret{Src: "inline", Value: "token"}}
 			tt.change(&g)
 			checkError(t, g.Validate(), tt.want)
 			if g.Group != "default" {
@@ -61,10 +62,10 @@ func TestForgeValidate(t *testing.T) {
 		})
 	}
 	t.Run("preserves group and labels", func(t *testing.T) {
-		g := ForgeConfig{Url: "https://github.com/org", Group: "custom", Labels: []string{"linux"}, Token: config.Secret{"env", "TOKEN"}}
+		g := ForgeConfig{Url: "https://github.com/org", Group: "custom", Labels: []string{"linux"}, Token: config.Secret{Src: "env", Value: "TOKEN"}}
 		checkError(t, g.Validate(), "")
 		if g.Group != "custom" || len(g.Labels) != 1 || g.Labels[0] != "linux" {
-			t.Fatalf("unexpected group: %+v", g)
+			t.Fatalf("unexpected group: %+v", &g)
 		}
 	})
 }
@@ -84,12 +85,12 @@ func TestLoadConfigGitHubApp(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	auth, err := cfg.GitHubApp.auth()
+	keyValue, err := cfg.GitHubApp.PrivateKey.Take(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if auth.ClientID != "Iv1.client" || auth.InstallationID != 42 || auth.PrivateKey != "pem" {
-		t.Errorf("GitHub App auth = %+v", auth)
+	if cfg.GitHubApp.ClientID != "Iv1.client" || cfg.GitHubApp.InstallationID != 42 || keyValue != "pem" {
+		t.Error("unexpected GitHub App credentials")
 	}
 }
 
@@ -97,7 +98,7 @@ func TestNewQueueWithoutWorkerInstallation(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("PATH", "")
 	for _, version := range []string{"", "2.300.0"} {
-		cfg := ForgeConfig{Url: "https://github.com/org/repo", Token: config.Secret{"inline", "token"}, RunnerVersion: version}
+		cfg := ForgeConfig{Url: "https://github.com/org/repo", Token: config.Secret{Src: "inline", Value: "token"}, RunnerVersion: version}
 		queue, err := cfg.NewQueue("instance", "test")
 		if err != nil {
 			t.Fatal(err)
