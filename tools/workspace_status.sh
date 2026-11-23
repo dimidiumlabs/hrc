@@ -69,8 +69,8 @@ resolve_version() (
     ref=$(git_value merge-base HEAD origin/main)
     ref=${ref:-HEAD}
   fi
-  tag=$(git_value describe --tags --abbrev=0 --match 'release-[0-9]*' "$ref")
-  cnt=$(git_value rev-list --count --first-parent "${tag:+$tag..}$ref")
+  # Count the full mainline so new release tags cannot reset dev precedence.
+  cnt=$(git_value rev-list --count --first-parent "$ref")
   cnt=${cnt:-65536}
   case "$cnt" in
   *[!0-9]*) fail "invalid Git commit count: $cnt" ;;

@@ -56,10 +56,8 @@ function Resolve-Version {
         $ref = Get-GitValue @('merge-base', 'HEAD', 'origin/main')
         if (-not $ref) { $ref = 'HEAD' }
     }
-    $tag = Get-GitValue @('describe', '--tags', '--abbrev=0', '--match', 'release-[0-9]*', $ref)
-    $range = $ref
-    if ($tag) { $range = "${tag}..$ref" }
-    $cnt = Get-GitValue @('rev-list', '--count', '--first-parent', $range)
+    # Count the full mainline so new release tags cannot reset dev precedence.
+    $cnt = Get-GitValue @('rev-list', '--count', '--first-parent', $ref)
     if (-not $cnt) { $cnt = '65536' }
     if ($cnt -notmatch '^[0-9]+$') { throw "invalid Git commit count: $cnt" }
     $pre = 'dev.{0}' -f [long]::Parse($cnt)

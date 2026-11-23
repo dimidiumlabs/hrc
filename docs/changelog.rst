@@ -20,6 +20,12 @@ Changed
 - Reread GitHub credentials on authentication renewal; require exactly one of
   ``app``, ``pat`` or ``jwt``.
 
+Fixed
+~~~~~
+
+- Count development versions across the full first-parent history so new release
+  tags cannot reset the counter and block publication.
+
 `0.5.0`_ - 2026-11-22
 ---------------------
 
