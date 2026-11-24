@@ -5,6 +5,7 @@ package config
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"os"
 	"path/filepath"
@@ -45,6 +46,49 @@ func TestByteSizeString(t *testing.T) {
 		if got := size.String(); got != want {
 			t.Errorf("ByteSize(%d) = %q, want %q", uint64(size), got, want)
 		}
+	}
+}
+
+func TestProviderType(t *testing.T) {
+	for _, tc := range []struct {
+		value ProviderType
+		name  string
+	}{
+		{ProviderGitHub, "github"},
+		{ProviderForgejo, "forgejo"},
+		{ProviderProcess, "process"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(tc.value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != `"`+tc.name+`"` {
+				t.Fatalf("JSON = %s", data)
+			}
+			var decoded ProviderType
+			if err := json.Unmarshal(data, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if decoded != tc.value {
+				t.Fatalf("decoded = %v", decoded)
+			}
+		})
+	}
+	for _, data := range []string{`""`, `"other"`, `"GitHub"`, `1`, `true`, `{}`} {
+		var decoded ProviderType
+		if err := json.Unmarshal([]byte(data), &decoded); err == nil {
+			t.Errorf("accepted invalid provider type %s", data)
+		}
+	}
+	for _, value := range []ProviderType{ProviderUnknown, ProviderType(255)} {
+		if _, err := json.Marshal(value); err == nil {
+			t.Errorf("marshaled invalid provider type %v", value)
+		}
+	}
+	value := ProviderForgejo
+	if err := value.UnmarshalText([]byte("other")); err == nil || value != ProviderForgejo {
+		t.Fatal("failed decoding must preserve the previous value")
 	}
 }
 

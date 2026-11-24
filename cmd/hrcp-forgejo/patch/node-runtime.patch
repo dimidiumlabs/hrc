@@ -1,0 +1,63 @@
+--- a/act/runner/action.go
++++ b/act/runner/action.go
+@@ -154,6 +154,21 @@
+ 	return rc.JobContainer.CopyDir(containerActionDirCopy, actionDir+"/", rc.Config.UseGitIgnore)(ctx)
+ }
+ 
++// WithNodeRuntimeResolver supplies the Node executable for JavaScript actions.
++// HRC uses this for host execution with bundled, version-specific runtimes.
++func WithNodeRuntimeResolver(ctx context.Context, resolve func(string) (string, error)) context.Context {
++	return context.WithValue(ctx, nodeRuntimeResolverKey{}, resolve)
++}
++
++type nodeRuntimeResolverKey struct{}
++
++func resolveNodeRuntime(ctx context.Context, using string) (string, error) {
++	if resolve, ok := ctx.Value(nodeRuntimeResolverKey{}).(func(string) (string, error)); ok {
++		return resolve(using)
++	}
++	return "node", nil
++}
++
+ func runActionImpl(step actionStep, actionDir string, remoteAction *remoteAction) common.Executor {
+ 	rc := step.getRunContext()
+ 	stepModel := step.getStepModel()
+@@ -188,7 +203,11 @@
+ 				return err
+ 			}
+ 
+-			containerArgs := []string{"node", path.Join(containerActionDir, action.Runs.Main)}
++			node, err := resolveNodeRuntime(ctx, string(action.Runs.Using))
++			if err != nil {
++				return err
++			}
++			containerArgs := []string{node, path.Join(containerActionDir, action.Runs.Main)}
+ 			logger.Debugf("executing remote job container: %s", containerArgs)
+ 
+ 			rc.ApplyExtraPath(ctx, step.getEnv())
+@@ -673,7 +692,11 @@
+ 				rc.ActionPath = containerActionDir
+ 				containerArgs = []string{"sh", "-c", action.Runs.Pre}
+ 			} else {
+-				containerArgs = []string{"node", path.Join(containerActionDir, action.Runs.Pre)}
++				node, err := resolveNodeRuntime(ctx, string(action.Runs.Using))
++				if err != nil {
++					return err
++				}
++				containerArgs = []string{node, path.Join(containerActionDir, action.Runs.Pre)}
+ 			}
+ 			logger.Debugf("executing remote job container: %s", containerArgs)
+ 
+@@ -825,7 +848,11 @@
+ 				return err
+ 			}
+ 
+-			containerArgs := []string{"node", path.Join(containerActionDir, action.Runs.Post)}
++			node, err := resolveNodeRuntime(ctx, string(action.Runs.Using))
++			if err != nil {
++				return err
++			}
++			containerArgs := []string{node, path.Join(containerActionDir, action.Runs.Post)}
+ 			logger.Debugf("executing remote job container: %s", containerArgs)
+ 
+ 			rc.ApplyExtraPath(ctx, step.getEnv())

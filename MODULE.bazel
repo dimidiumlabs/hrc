@@ -6,6 +6,8 @@ module(name = "hrc")
 bazel_dep(name = "aspect_rules_lint", version = "2.9.1")
 bazel_dep(name = "buildifier_prebuilt", version = "10.2.0")
 bazel_dep(name = "gazelle", version = "0.54.0")
+bazel_dep(name = "rules_license", version = "1.0.0")
+bazel_dep(name = "package_metadata", version = "0.0.7")
 bazel_dep(name = "protobuf", version = "36.2", repo_name = "com_google_protobuf")
 bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "rules_go", version = "0.65.0")
@@ -24,7 +26,45 @@ go_sdk.download(version = "1.27.4")
 
 go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
 go_deps.from_file(go_mod = "//:go.mod")
-use_repo(go_deps, "com_github_actions_scaleset", "com_github_golang_jwt_jwt_v5", "in_yaml_go_yaml_v4", "org_golang_google_grpc", "org_golang_google_protobuf", "org_golang_x_oauth2", "org_golang_x_sys")
+
+# actionlint 1.7.12 requires the pre-release YAML API removed in YAML 4.0.
+# Keep its dependency private rather than downgrading HRC's YAML library.
+go_repository = use_repo_rule("@gazelle//:deps.bzl", "go_repository")
+
+go_repository(
+    name = "forgejo_actionlint_yaml",
+    build_directives = [
+        "gazelle:importmap_prefix hrc.internal/forgejo-yaml/v4",
+        "gazelle:map_kind go_library go_library @rules_go//go:def.bzl",
+        "gazelle:map_kind go_test go_test @rules_go//go:def.bzl",
+    ],
+    importpath = "go.yaml.in/yaml/v4",
+    version = "v4.0.0-rc.3",
+    sum = "h1:3h1fjsh1CTAPjW7q/EMe+C8shx5d8ctzZTrLcs/j8Go=",
+)
+
+go_deps.gazelle_override(
+    path = "github.com/rhysd/actionlint",
+    directives = ["gazelle:resolve go go.yaml.in/yaml/v4 @@+go_repository+forgejo_actionlint_yaml//:yaml"],
+)
+go_deps.module_override(
+    path = "github.com/docker/cli",
+    patches = ["//cmd/hrcp-forgejo/patch:docker-embed.patch"],
+    patch_strip = 1,
+)
+
+# The bridge uses the upstream import prefix to access Go internal packages.
+# Keep the Bazel visibility exception scoped to that bridge only.
+go_deps.gazelle_override(
+    directives = ["gazelle:go_visibility @@//cmd/hrcp-forgejo/bridge:__pkg__"],
+    path = "code.forgejo.org/forgejo/runner/v13",
+)
+go_deps.module_override(
+    path = "code.forgejo.org/forgejo/runner/v13",
+    patch_strip = 1,
+    patches = ["//cmd/hrcp-forgejo/patch:node-runtime.patch"],
+)
+use_repo(go_deps, "com_connectrpc_connect", "com_github_actions_scaleset", "com_github_golang_jwt_jwt_v5", "com_github_google_uuid", "com_github_sirupsen_logrus", "in_yaml_go_yaml_v4", "org_forgejo_code_forgejo_actions_proto", "org_forgejo_code_forgejo_runner_v13", "org_golang_google_grpc", "org_golang_google_protobuf", "org_golang_x_oauth2", "org_golang_x_sys")
 
 # Python
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
@@ -80,6 +120,15 @@ register_toolchains("@dotnet_toolchains//:all")
 http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
+
+# Forgejo integration tests: no Docker daemon or privileged account required.
+http_file(
+    name = "forgejo_test_server",
+    urls = ["https://codeberg.org/forgejo/forgejo/releases/download/v17.0.2/forgejo-17.0.2-linux-amd64"],
+    sha256 = "760cf8c6da9fb344908eebd1ebf920b79620fce6ebb22efa8f8c1e483652c1ee",
+    downloaded_file_path = "forgejo",
+    executable = True,
+)
 
 # Native esbuild CLI: no npm installation or system Node.js required.
 # renovate: datasource=npm depName=esbuild

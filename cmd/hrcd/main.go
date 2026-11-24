@@ -48,10 +48,10 @@ func (c ForgeConfig) MarshalJSON() ([]byte, error) { return bytes.Clone(c.raw), 
 func (c *ForgeConfig) Base() *hrcconfig.Provider   { return &c.placement }
 
 func (c *ForgeConfig) Validate() error {
-	if c.placement.Type == "" {
-		c.placement.Type = "github"
+	if c.placement.Type == hrcconfig.ProviderUnknown {
+		return fmt.Errorf("%w: provider type is required", provider.ErrInvalidConfig)
 	}
-	if c.placement.Type != "github" {
+	if c.placement.Type != hrcconfig.ProviderGitHub && c.placement.Type != hrcconfig.ProviderForgejo {
 		return fmt.Errorf("%w: unknown configuration type %q", provider.ErrInvalidConfig, c.placement.Type)
 	}
 	return nil
@@ -63,7 +63,7 @@ func (c ForgeConfig) NewQueue(id, version string, pool *runtime.Pool, onError fu
 	}
 	return &provider.ProcessQueue{
 		Pool: pool, OnError: onError,
-		Command: []string{"hrcp-github-queue"}, Config: bytes.Clone(c.raw),
+		Command: []string{"hrcp-" + c.placement.Type.String() + "-queue"}, Config: bytes.Clone(c.raw),
 		Instance: id, Version: version, Name: string(c.placement.ID),
 	}, nil
 }
@@ -140,13 +140,19 @@ func executionConfigs(dirs Directories) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := json.Marshal(provider.ProcessConfig{
+	dataGitHub, err := json.Marshal(provider.ProcessConfig{
 		Command: []string{"hrcp-github-worker"}, Config: settings,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return map[string][]byte{"github": data}, nil
+	dataForgejo, err := json.Marshal(provider.ProcessConfig{
+		Command: []string{"hrcp-forgejo-worker"}, Config: settings,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string][]byte{"github": dataGitHub, "forgejo": dataForgejo}, nil
 }
 
 var (

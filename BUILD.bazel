@@ -18,6 +18,7 @@ check_sources(
         "//cmd",
         "//cmd/hrcd",
         "//cmd/hrcm",
+        "//cmd/hrcp-forgejo",
         "//cmd/hrcp-github",
         "//internal/config",
         "//internal/provider",
@@ -59,14 +60,14 @@ repository_format(
 
 buildifier_test(
     name = "lint_starlark",
-    srcs = [":bazel_sources"],
     size = "small",
+    srcs = [":bazel_sources"],
 )
 
 shellcheck_test(
     name = "lint_shell",
-    srcs = [":sh_sources"],
     size = "small",
+    srcs = [":sh_sources"],
 )
 
 test_suite(
@@ -111,13 +112,14 @@ filegroup(
             "dist/release/VERSION",
             "dist/release/hrc-*.tar.gz",
         ],
-        exclude = ["dist/release/hrc-docs-*.tar.gz"],
         allow_empty = True,
+        exclude = ["dist/release/hrc-docs-*.tar.gz"],
     ),
     visibility = ["//ansible:__pkg__"],
 )
 
 # gazelle:prefix dimidiumlabs.io/hrc
+# gazelle:resolve go code.forgejo.org/forgejo/runner/v13/hrcbridge //cmd/hrcp-forgejo/bridge
 # gazelle:resolve go dimidiumlabs.io/hrc/internal/provider //internal/provider
 # gazelle:resolve go dimidiumlabs.io/hrc/internal/space //internal/space
 # gazelle:exclude dist
@@ -130,6 +132,7 @@ test_suite(
         "//ansible:collection_test",
         "//cmd/hrcd:hrcd_test",
         "//cmd/hrcm:hrcm_test",
+        "//cmd/hrcp-forgejo:test",
         "//cmd/hrcp-github:test",
         "//internal/config:config_test",
         "//internal/provider:provider_test",

@@ -1,0 +1,97 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+load("@rules_go//go:def.bzl", "go_test")
+load("@rules_python//python:py_binary.bzl", "py_binary")
+load("@rules_python//python:py_test.bzl", "py_test")
+load("//tools/check:sources.bzl", "check_sources")
+
+check_sources()
+
+py_binary(
+    name = "local",
+    srcs = ["local.py"],
+    data = [
+        "//:hrcd",
+        "//:hrcm",
+        "//cmd/hrcp-forgejo/queue",
+        "//cmd/hrcp-forgejo/worker",
+        "@forgejo_test_server//file",
+        "@node20_linux_glibc_x64//:node_bin",
+        "@node24_linux_glibc_x64//:node_bin",
+    ],
+    env = {
+        "FORGEJO_QUEUE": "$(rlocationpath //cmd/hrcp-forgejo/queue)",
+        "FORGEJO_SERVER": "$(rlocationpath @forgejo_test_server//file)",
+        "FORGEJO_WORKER": "$(rlocationpath //cmd/hrcp-forgejo/worker)",
+        "HRC_DAEMON": "$(rlocationpath //:hrcd)",
+        "HRC_SPACE": "$(rlocationpath //:hrcm)",
+        "NODE20": "$(rlocationpath @node20_linux_glibc_x64//:node_bin)",
+        "NODE24": "$(rlocationpath @node24_linux_glibc_x64//:node_bin)",
+    },
+    legacy_create_init = False,
+    main = "local.py",
+    tags = ["manual"],
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    deps = ["@rules_python//python/runfiles"],
+)
+
+# Exercises the real server, HRC IPC, scheduler and pgroup slot, not a mock API.
+py_test(
+    name = "local_test",
+    size = "medium",
+    srcs = ["local.py"],
+    data = [
+        "//:hrcd",
+        "//:hrcm",
+        "//cmd/hrcp-forgejo/queue",
+        "//cmd/hrcp-forgejo/worker",
+        "@forgejo_test_server//file",
+        "@node20_linux_glibc_x64//:node_bin",
+        "@node24_linux_glibc_x64//:node_bin",
+    ],
+    env = {
+        "FORGEJO_QUEUE": "$(rlocationpath //cmd/hrcp-forgejo/queue)",
+        "FORGEJO_SERVER": "$(rlocationpath @forgejo_test_server//file)",
+        "FORGEJO_WORKER": "$(rlocationpath //cmd/hrcp-forgejo/worker)",
+        "HRC_DAEMON": "$(rlocationpath //:hrcd)",
+        "HRC_SPACE": "$(rlocationpath //:hrcm)",
+        "NODE20": "$(rlocationpath @node20_linux_glibc_x64//:node_bin)",
+        "NODE24": "$(rlocationpath @node24_linux_glibc_x64//:node_bin)",
+    },
+    legacy_create_init = False,
+    main = "local.py",
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    deps = ["@rules_python//python/runfiles"],
+)
+
+go_test(
+    name = "integration_test",
+    size = "medium",
+    srcs = ["rpc_test.go"],
+    args = [
+        "-queue=$(rlocationpath //cmd/hrcp-forgejo/queue)",
+        "-worker=$(rlocationpath //cmd/hrcp-forgejo/worker)",
+    ],
+    data = [
+        "//cmd/hrcp-forgejo/queue",
+        "//cmd/hrcp-forgejo/worker",
+    ],
+    deps = [
+        "//internal/provider",
+        "//internal/runtime",
+        "@com_connectrpc_connect//:connect",
+        "@com_github_google_uuid//:uuid",
+        "@org_forgejo_code_forgejo_actions_proto//runner/v1:runner",
+        "@org_forgejo_code_forgejo_actions_proto//runner/v1/runnerv1connect",
+        "@org_golang_google_protobuf//proto",
+        "@org_golang_google_protobuf//types/known/structpb",
+        "@rules_go//go/runfiles",
+    ],
+)

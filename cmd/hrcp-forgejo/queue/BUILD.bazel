@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("//tools/check:sources.bzl", "check_sources")
+
+check_sources()
+
+go_library(
+    name = "queue_lib",
+    srcs = [
+        "main.go",
+        "queue.go",
+    ],
+    importpath = "dimidiumlabs.io/hrc/cmd/hrcp-forgejo/queue",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//cmd/hrcp-forgejo/bridge",
+        "//internal/config",
+        "//internal/provider",
+        "@com_github_google_uuid//:uuid",
+        "@org_forgejo_code_forgejo_actions_proto//runner/v1:runner",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_binary(
+    name = "queue",
+    basename = "hrcp-forgejo-queue",
+    embed = [":queue_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "queue_test",
+    srcs = ["queue_test.go"],
+    embed = [":queue_lib"],
+    deps = [
+        "//cmd/hrcp-forgejo/bridge",
+        "//internal/config",
+        "//internal/provider",
+        "@com_connectrpc_connect//:connect",
+        "@org_forgejo_code_forgejo_actions_proto//runner/v1:runner",
+        "@org_forgejo_code_forgejo_actions_proto//runner/v1/runnerv1connect",
+        "@org_golang_google_protobuf//proto",
+    ],
+)

@@ -33,6 +33,8 @@ func TestForgeValidate(t *testing.T) {
 		want   string
 	}{
 		{"PAT", func(g *ForgeConfig) {}, ""},
+		{"missing type", func(g *ForgeConfig) { g.Type = config.ProviderUnknown }, "unknown forge type"},
+		{"wrong type", func(g *ForgeConfig) { g.Type = config.ProviderForgejo }, "unknown forge type"},
 		{"app", func(g *ForgeConfig) {
 			g.Token = config.Secret{}
 			g.GitHubApp.ClientID = "client"
@@ -53,7 +55,7 @@ func TestForgeValidate(t *testing.T) {
 		}, "invalid private key"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			g := ForgeConfig{Url: "https://github.com/org/repo", Token: config.Secret{Src: "inline", Value: "token"}}
+			g := ForgeConfig{Provider: config.Provider{Type: config.ProviderGitHub}, Url: "https://github.com/org/repo", Token: config.Secret{Src: "inline", Value: "token"}}
 			tt.change(&g)
 			checkError(t, g.Validate(), tt.want)
 			if g.Group != "default" {
@@ -62,7 +64,7 @@ func TestForgeValidate(t *testing.T) {
 		})
 	}
 	t.Run("preserves group and labels", func(t *testing.T) {
-		g := ForgeConfig{Url: "https://github.com/org", Group: "custom", Labels: []string{"linux"}, Token: config.Secret{Src: "env", Value: "TOKEN"}}
+		g := ForgeConfig{Provider: config.Provider{Type: config.ProviderGitHub}, Url: "https://github.com/org", Group: "custom", Labels: []string{"linux"}, Token: config.Secret{Src: "env", Value: "TOKEN"}}
 		checkError(t, g.Validate(), "")
 		if g.Group != "custom" || len(g.Labels) != 1 || g.Labels[0] != "linux" {
 			t.Fatalf("unexpected group: %+v", &g)
@@ -78,7 +80,7 @@ func TestLoadConfigGitHubApp(t *testing.T) {
 	}
 
 	var cfg ForgeConfig
-	content := `{"url":"https://github.com/org","app":{"clientId":"Iv1.client","installationId":42,"privateKey":{"type":"file","value":` + strconv.Quote(key) + `}}}`
+	content := `{"type":"github","url":"https://github.com/org","app":{"clientId":"Iv1.client","installationId":42,"privateKey":{"type":"file","value":` + strconv.Quote(key) + `}}}`
 	if err := json.Unmarshal([]byte(content), &cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +100,7 @@ func TestNewQueueWithoutWorkerInstallation(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("PATH", "")
 	for _, version := range []string{"", "2.300.0"} {
-		cfg := ForgeConfig{Url: "https://github.com/org/repo", Token: config.Secret{Src: "inline", Value: "token"}, RunnerVersion: version}
+		cfg := ForgeConfig{Provider: config.Provider{Type: config.ProviderGitHub}, Url: "https://github.com/org/repo", Token: config.Secret{Src: "inline", Value: "token"}, RunnerVersion: version}
 		queue, err := cfg.NewQueue("instance", "test")
 		if err != nil {
 			t.Fatal(err)

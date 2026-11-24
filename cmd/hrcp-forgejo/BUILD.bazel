@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+load("//tools/check:sources.bzl", "check_sources")
+
+check_sources(
+    deps = [
+        "//cmd/hrcp-forgejo/bridge",
+        "//cmd/hrcp-forgejo/integration",
+        "//cmd/hrcp-forgejo/patch",
+        "//cmd/hrcp-forgejo/queue",
+        "//cmd/hrcp-forgejo/worker",
+    ],
+)
+
+test_suite(
+    name = "test",
+    tests = [
+        "//cmd/hrcp-forgejo/bridge:bridge_test",
+        "//cmd/hrcp-forgejo/integration:integration_test",
+        "//cmd/hrcp-forgejo/integration:local_test",
+        "//cmd/hrcp-forgejo/queue:queue_test",
+        "//cmd/hrcp-forgejo/worker:worker_test",
+    ],
+)

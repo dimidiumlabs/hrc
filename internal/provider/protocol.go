@@ -108,10 +108,10 @@ type QueueConfig struct {
 }
 
 func (c *QueueConfig) Validate() error {
-	if c.Type == "" {
-		c.Type = "process"
+	if c.Type == config.ProviderUnknown {
+		c.Type = config.ProviderProcess
 	}
-	if c.Type != "process" {
+	if c.Type != config.ProviderProcess {
 		return fmt.Errorf("unknown queue type %q", c.Type)
 	}
 	return c.ProcessConfig.Validate()

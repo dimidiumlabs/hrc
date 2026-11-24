@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("//tools/check:sources.bzl", "check_sources")
+
+check_sources()
+
+go_library(
+    name = "worker_lib",
+    srcs = ["main.go"],
+    importpath = "dimidiumlabs.io/hrc/cmd/hrcp-forgejo/worker",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//cmd/hrcp-forgejo/bridge",
+        "//internal/provider",
+        "@org_forgejo_code_forgejo_actions_proto//runner/v1:runner",
+    ],
+)
+
+go_binary(
+    name = "worker",
+    basename = "hrcp-forgejo-worker",
+    embed = [":worker_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "worker_test",
+    srcs = ["worker_test.go"],
+    embed = [":worker_lib"],
+    deps = [
+        "//cmd/hrcp-forgejo/bridge",
+        "//internal/provider",
+    ],
+)

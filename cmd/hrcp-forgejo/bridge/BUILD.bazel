@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("//tools/check:sources.bzl", "check_sources")
+
+check_sources()
+
+go_test(
+    name = "bridge_test",
+    size = "small",
+    srcs = ["bridge_test.go"],
+    embed = [":bridge"],
+)
+
+# gazelle:prefix code.forgejo.org/forgejo/runner/v13/hrcbridge
+
+go_library(
+    name = "bridge",
+    srcs = ["bridge.go"],
+    importpath = "code.forgejo.org/forgejo/runner/v13/hrcbridge",
+    visibility = ["//cmd/hrcp-forgejo:__subpackages__"],
+    x_defs = {"code.forgejo.org/forgejo/runner/v13/internal/pkg/ver.version": "13.2.2"},
+    deps = [
+        "@com_connectrpc_connect//:connect",
+        "@com_github_google_uuid//:uuid",
+        "@com_github_sirupsen_logrus//:logrus",
+        "@org_forgejo_code_forgejo_actions_proto//runner/v1:runner",
+        "@org_forgejo_code_forgejo_runner_v13//act/runner",
+        "@org_forgejo_code_forgejo_runner_v13//internal/app/run",
+        "@org_forgejo_code_forgejo_runner_v13//internal/pkg/client",
+        "@org_forgejo_code_forgejo_runner_v13//internal/pkg/config",
+        "@org_forgejo_code_forgejo_runner_v13//internal/pkg/labels",
+        "@org_golang_google_protobuf//proto",
+        "@org_golang_google_protobuf//types/known/timestamppb",
+    ],
+)

@@ -99,7 +99,7 @@ func TestForgeAuthenticationSelection(t *testing.T) {
 		{app: true, jwt: true},
 		{pat: true, app: true, incomplete: true},
 	} {
-		cfg := &ForgeConfig{Url: "https://github.com/org"}
+		cfg := &ForgeConfig{Provider: config.Provider{Type: config.ProviderGitHub}, Url: "https://github.com/org"}
 		if combination.pat {
 			cfg.Token = config.Secret{Src: "inline", Value: "token"}
 		}
@@ -116,7 +116,7 @@ func TestForgeAuthenticationSelection(t *testing.T) {
 		}
 		checkError(t, cfg.Validate(), "exactly one")
 	}
-	cfg := &ForgeConfig{Url: "https://github.com/org", GitHubJWT: GitHubJWT{InstallationID: 1, Token: config.Secret{Src: "inline", Value: "token"}}}
+	cfg := &ForgeConfig{Provider: config.Provider{Type: config.ProviderGitHub}, Url: "https://github.com/org", GitHubJWT: GitHubJWT{InstallationID: 1, Token: config.Secret{Src: "inline", Value: "token"}}}
 	checkError(t, cfg.Validate(), "")
 	cfg.GitHubJWT.InstallationID = 0
 	checkError(t, cfg.Validate(), "installation ID")
@@ -124,7 +124,7 @@ func TestForgeAuthenticationSelection(t *testing.T) {
 
 func TestLoadConfigJWT(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hrc.yaml")
-	data := "url: https://github.com/org\njwt:\n  installationId: 42\n  token:\n    type: subcommand\n    command: [/usr/local/bin/jwt-helper, --ci]\n    ttl: 5m\n    timeout: 10s\n"
+	data := "type: github\nurl: https://github.com/org\njwt:\n  installationId: 42\n  token:\n    type: subcommand\n    command: [/usr/local/bin/jwt-helper, --ci]\n    ttl: 5m\n    timeout: 10s\n"
 	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestScalesetCredentialRefresh(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			cfg := ForgeConfig{Url: server.URL + "/org"}
+			cfg := ForgeConfig{Provider: config.Provider{Type: config.ProviderGitHub}, Url: server.URL + "/org"}
 			switch mode {
 			case "app":
 				cfg.GitHubApp = GitHubApp{ClientID: "client", InstallationID: 42, PrivateKey: config.Secret{Src: "file", Value: path}}

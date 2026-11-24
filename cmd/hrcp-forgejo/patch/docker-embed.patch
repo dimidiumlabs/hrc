@@ -1,0 +1,25 @@
+diff --git a/cli/compose/schema/BUILD.bazel b/cli/compose/schema/BUILD.bazel
+--- a/cli/compose/schema/BUILD.bazel
++++ b/cli/compose/schema/BUILD.bazel
+@@ -3,6 +3,7 @@
+ go_library(
+     name = "schema",
+     srcs = ["schema.go"],
++    embedsrcs = ["//cli/compose/schema/data:schemas"],
+     importpath = "github.com/docker/cli/cli/compose/schema",
+     visibility = ["//visibility:public"],
+     deps = [
+diff --git a/cli/compose/schema/data/BUILD.bazel b/cli/compose/schema/data/BUILD.bazel
+--- a/cli/compose/schema/data/BUILD.bazel
++++ b/cli/compose/schema/data/BUILD.bazel
+@@ -11,4 +11,10 @@
+     name = "go_default_library",
+     actual = ":data",
+     visibility = ["//visibility:public"],
+ )
++
++filegroup(
++    name = "schemas",
++    srcs = glob(["config_schema_v*.json"]),
++    visibility = ["//cli/compose/schema:__pkg__"],
++)

@@ -68,9 +68,6 @@ type ForgeConfig struct {
 }
 
 func (c *ForgeConfig) defaults() {
-	if c.Type == "" {
-		c.Type = "github"
-	}
 	if c.Group == "" {
 		c.Group = scaleset.DefaultRunnerGroup
 	}
@@ -83,7 +80,7 @@ func (c *ForgeConfig) Validate() (err error) {
 		}
 	}()
 	c.defaults()
-	if c.Type != "github" {
+	if c.Type != config.ProviderGitHub {
 		return fmt.Errorf("unknown forge type %q", c.Type)
 	}
 
