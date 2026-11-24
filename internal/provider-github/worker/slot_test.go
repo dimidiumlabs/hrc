@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // This slot's paths do not exist in the scheduler's filesystem.
@@ -46,11 +47,11 @@ type remoteProcess struct {
 	once  sync.Once
 }
 
-func (p *remoteProcess) finish()               { p.once.Do(func() { close(p.done) }) }
-func (p *remoteProcess) Stdin() io.WriteCloser { return p.input }
-func (p *remoteProcess) Wait() (int, error)    { <-p.done; return 100, nil }
-func (p *remoteProcess) Kill() error           { p.input.Close(); p.finish(); return nil }
-func (p *remoteProcess) Close() error          { return nil }
+func (p *remoteProcess) finish()                            { p.once.Do(func() { close(p.done) }) }
+func (p *remoteProcess) Stdin() io.WriteCloser              { return p.input }
+func (p *remoteProcess) Wait() (int, error)                 { <-p.done; return 100, nil }
+func (p *remoteProcess) Kill() error                        { p.input.Close(); p.finish(); return nil }
+func (p *remoteProcess) Close(time.Duration) (error, error) { return nil, nil }
 
 func TestWorkerUsesTargetFilesystemAndStreams(t *testing.T) {
 	target := &remoteSlot{}

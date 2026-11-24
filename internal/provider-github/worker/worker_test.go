@@ -673,5 +673,5 @@ func (p *testProcess) Wait() (int, error) {
 	}
 	return 0, err
 }
-func (p *testProcess) Kill() error  { return p.cmd.Process.Kill() }
-func (p *testProcess) Close() error { p.input.Close(); return nil }
+func (p *testProcess) Kill() error                        { return p.cmd.Process.Kill() }
+func (p *testProcess) Close(time.Duration) (error, error) { p.input.Close(); return nil, nil }

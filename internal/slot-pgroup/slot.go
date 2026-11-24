@@ -15,7 +15,7 @@ import (
 	"dimidiumlabs.io/hrc/internal/provider"
 	github "dimidiumlabs.io/hrc/internal/provider-github"
 	"dimidiumlabs.io/hrc/internal/provider-github/worker"
-	platformruntime "dimidiumlabs.io/hrc/internal/runtime"
+	"dimidiumlabs.io/hrc/internal/runtime"
 	"dimidiumlabs.io/hrc/internal/slot"
 )
 
@@ -23,7 +23,7 @@ import (
 // Worker selection and process launch are explicit implementation details.
 type Slot struct {
 	dir           string
-	group         *pgroup
+	group         *runtime.Group
 	launch        func(context.Context, *Slot, provider.Job) (provider.Run, error)
 	mu            sync.Mutex
 	active        *run
@@ -52,7 +52,7 @@ func newSlot(dir string, launch func(context.Context, *Slot, provider.Job) (prov
 	if err != nil {
 		return nil, errors.Join(slot.ErrPrepare, err)
 	}
-	group, err := newPGroup()
+	group, err := runtime.NewGroup()
 	if err != nil {
 		return nil, errors.Join(slot.ErrPrepare, err)
 	}
@@ -67,28 +67,20 @@ func (*Slot) Type() string                  { return "pgroup" }
 func (s *Slot) Path(parts ...string) string { return filepath.Join(parts...) }
 func (s *Slot) Status() slot.Status         { s.mu.Lock(); defer s.mu.Unlock(); return s.status }
 
-// Exec is only the host provider adapter's process primitive.
-func (s *Slot) Exec(ctx context.Context, command Command) (Process, error) {
-	if command.Dir == "" {
-		command.Dir = s.dir
-	}
-	p, err := s.group.Start(ctx, command)
-	if err != nil {
-		return nil, err
-	}
-	return p, nil
-}
-
 // StartWorker uses GitHub's original spawnclient pipe protocol directly.
 func (s *Slot) StartWorker(ctx context.Context, config worker.Config, env []string) (worker.Process, io.WriteCloser, error) {
-	path, err := platformruntime.LookPath(config.Path)
+	path, err := runtime.LookPath(config.Path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("find Worker: %w", err)
 	}
-	p, err := s.Exec(ctx, Command{
-		Path: path, Dir: config.WorkDir, Args: []string{"spawnclient"},
+	dir := config.WorkDir
+	if dir == "" {
+		dir = s.dir
+	}
+	p, err := s.group.Start(ctx, runtime.Command{
+		Path: path, Dir: dir, Args: []string{"spawnclient"},
 		Env: env, EnvFile: s.Path(config.Dir, ".env"),
-		Pipes:  []PipeDirection{PipeRead, PipeWrite},
+		Pipes:  []runtime.PipeDirection{runtime.PipeRead, runtime.PipeWrite},
 		Stdout: config.Stdout, Stderr: config.Stderr,
 	})
 	if err != nil {

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
 // SPDX-License-Identifier: BSD-3-Clause
 
-package slotpgroup
+package runtime
 
 import (
 	"crypto/rand"
@@ -14,21 +14,20 @@ import (
 	"syscall"
 	"time"
 
-	"dimidiumlabs.io/hrc/internal/config"
-	platformruntime "dimidiumlabs.io/hrc/internal/runtime"
+	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 )
 
 const trackingGroupEnv = "RUNNER_TRACKING_GROUP"
 
-// pgroup owns processes across multiple child lifetimes, such as the build
+// Group owns processes across multiple child lifetimes, such as the build
 // servers shared by successive jobs in one runner slot. On every platform,
 // Close finds processes by their inherited RUNNER_TRACKING_GROUP, even after
 // changing process group or reparenting. This is best effort: processes can
 // discard the environment and process enumeration races with forks. Windows
 // also keeps a shared job object as a crash-cleanup safety net.
-// Start and Close are safe for concurrent use. Use newPGroup to create a group;
-// a pgroup must not be copied.
-type pgroup struct {
+// Start and Close are safe for concurrent use. Use NewGroup to create a group;
+// a Group must not be copied.
+type Group struct {
 	mu       sync.Mutex
 	id       string
 	closed   bool
@@ -36,9 +35,9 @@ type pgroup struct {
 	platform pgroupPlatform
 }
 
-// newPGroup creates an empty group with a fresh tracking identity.
-func newPGroup() (*pgroup, error) {
-	g := &pgroup{id: rand.Text()}
+// NewGroup creates an empty group with a fresh tracking identity.
+func NewGroup() (*Group, error) {
+	g := &Group{id: rand.Text()}
 	if err := g.configure(); err != nil {
 		return nil, err
 	}
@@ -47,7 +46,7 @@ func newPGroup() (*pgroup, error) {
 
 // environment overrides inherited or caller-supplied tracking identities.
 // An explicit Env retains exec.Cmd's semantics: nil inherits, empty does not.
-func (g *pgroup) environment(env []string) []string {
+func (g *Group) environment(env []string) []string {
 	if env == nil {
 		env = os.Environ()
 	}
@@ -67,10 +66,10 @@ func (g *pgroup) environment(env []string) []string {
 
 // Close prevents new starts, terminates remaining members and frees the group.
 // It is idempotent. Callers must still Wait and Close their process objects.
-// On Unix this requires a live owner: SIGKILL or a controller crash cannot run
+// On Unix this requires a live owner: SIGKILL or an owner crash cannot run
 // environment-based cleanup. On Windows the last job handle closing also kills
 // the group's processes.
-func (g *pgroup) Close() error {
+func (g *Group) Close() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.id == "" {
@@ -83,13 +82,13 @@ func (g *pgroup) Close() error {
 	return g.closeErr
 }
 
-func (g *pgroup) terminate() error {
+func (g *Group) terminate() error {
 	err := g.killTracked()
 	return errors.Join(err, g.release())
 }
 
 func trackedProcesses(id string) ([]int, error) {
-	pids, err := platformruntime.ProcessIDs()
+	pids, err := ProcessIDs()
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +97,7 @@ func trackedProcesses(id string) ([]int, error) {
 		if pid <= 0 || pid == os.Getpid() {
 			continue
 		}
-		value, found, err := platformruntime.LookupProcessEnv(pid, trackingGroupEnv)
+		value, found, err := LookupProcessEnv(pid, trackingGroupEnv)
 		// Other users' processes can be inaccessible, and any process can
 		// exit after enumeration. Only readable matching members are ours.
 		if err == nil && found && value == id {
@@ -108,10 +107,10 @@ func trackedProcesses(id string) ([]int, error) {
 	return tracked, nil
 }
 
-func (g *pgroup) killTracked() error {
+func (g *Group) killTracked() error {
 	// Rescan after killing: a member may have forked after the snapshot. Bound
-	// cleanup so an unkillable process cannot block controller shutdown forever.
-	deadline := time.Now().Add(config.ProcessGroupCleanupTimeout)
+	// cleanup so an unkillable process cannot block owner shutdown forever.
+	deadline := time.Now().Add(hrcconfig.ProcessGroupCleanupTimeout)
 	for {
 		pids, err := trackedProcesses(g.id)
 		if err != nil || len(pids) == 0 {
@@ -134,6 +133,6 @@ func (g *pgroup) killTracked() error {
 		if time.Now().After(deadline) {
 			return errors.New("process group cleanup timed out")
 		}
-		time.Sleep(config.ProcessGroupPollInterval)
+		time.Sleep(hrcconfig.ProcessGroupPollInterval)
 	}
 }

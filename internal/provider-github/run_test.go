@@ -9,6 +9,7 @@ import (
 	"io"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"dimidiumlabs.io/hrc/internal/provider"
 	"dimidiumlabs.io/hrc/internal/provider-github/worker"
@@ -44,9 +45,9 @@ type runProcess struct {
 	read *io.PipeReader
 }
 
-func (p *runProcess) Wait() (int, error) { <-p.done; return p.exit, nil }
-func (p *runProcess) Kill() error        { return p.read.Close() }
-func (p *runProcess) Close() error       { return p.read.Close() }
+func (p *runProcess) Wait() (int, error)                 { <-p.done; return p.exit, nil }
+func (p *runProcess) Kill() error                        { return p.read.Close() }
+func (p *runProcess) Close(time.Duration) (error, error) { return nil, p.read.Close() }
 
 func TestRunMapsWorkerOutcomeWithoutSlotImplementation(t *testing.T) {
 	for _, tt := range []struct {

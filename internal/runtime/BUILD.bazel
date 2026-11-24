@@ -14,7 +14,7 @@ go_library(
     ),
     importpath = "dimidiumlabs.io/hrc/internal/runtime",
     visibility = ["//visibility:public"],
-    deps = select({
+    deps = ["//internal/config"] + select({
         "@rules_go//go/platform:darwin": [
             "@org_golang_x_sys//unix",
         ],

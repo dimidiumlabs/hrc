@@ -1,11 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
 // SPDX-License-Identifier: BSD-3-Clause
 
-package slotpgroup
+package runtime
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,38 +16,15 @@ import (
 	"strconv"
 	"testing"
 	"time"
-
-	platformruntime "dimidiumlabs.io/hrc/internal/runtime"
 )
 
-const childArg = "hrc-process-child"
+const processChildArg = "hrc-process-child"
 
-func TestMain(m *testing.M) {
-	if len(os.Args) == 4 && os.Args[1] == "spawnclient" {
-		handle, err := strconv.ParseUint(os.Args[2], 10, 64)
-		if err != nil {
-			os.Exit(51)
-		}
-		input := os.NewFile(uintptr(handle), "worker-input")
-		data, err := io.ReadAll(input)
-		if err != nil {
-			os.Exit(52)
-		}
-		cwd, err := os.Getwd()
-		if err != nil {
-			os.Exit(53)
-		}
-		json.NewEncoder(os.Stdout).Encode(map[string]string{
-			"input": string(data), "cwd": cwd, "layer": os.Getenv("HRC_LAUNCH_LAYER"),
-			"dotenv": os.Getenv("HRC_LAUNCH_DOTENV"), "tracking": os.Getenv(trackingGroupEnv),
-		})
-		os.Exit(0)
-	}
+func processTestChild() {
 	runDescendant()
-	if len(os.Args) >= 3 && os.Args[1] == childArg {
+	if len(os.Args) >= 3 && os.Args[1] == processChildArg {
 		os.Exit(testChild(os.Args[2], os.Args[3:]))
 	}
-	os.Exit(m.Run())
 }
 
 // testChild runs in the child started by startChild. It waits for the test's
@@ -96,9 +72,9 @@ func testChild(mode string, names []string) int {
 }
 
 // newTestPGroup creates a group closed when the test ends.
-func newTestPGroup(t *testing.T) *pgroup {
+func newTestPGroup(t *testing.T) *Group {
 	t.Helper()
-	g, err := newPGroup()
+	g, err := NewGroup()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,24 +88,24 @@ func newTestPGroup(t *testing.T) *pgroup {
 
 // startChild starts this test binary in mode, returning its go-ahead and report
 // files. The process belongs to a group closed when the test ends.
-func startChild(t *testing.T, mode string, env ...string) (*process, io.WriteCloser, *os.File, *bytes.Buffer) {
+func startChild(t *testing.T, mode string, env ...string) (*Child, io.WriteCloser, *os.File, *bytes.Buffer) {
 	t.Helper()
 	return startGroupChild(t, newTestPGroup(t), mode, env...)
 }
 
-func startGroupChild(t *testing.T, g *pgroup, mode string, env ...string) (*process, io.WriteCloser, *os.File, *bytes.Buffer) {
+func startGroupChild(t *testing.T, g *Group, mode string, env ...string) (*Child, io.WriteCloser, *os.File, *bytes.Buffer) {
 	t.Helper()
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, reportWrite, err := platformruntime.Pipe()
+	report, reportWrite, err := Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
 	p, err := g.Start(t.Context(), Command{
-		Path: self, Dir: t.TempDir(), Args: []string{childArg, mode},
+		Path: self, Dir: t.TempDir(), Args: []string{processChildArg, mode},
 		Env: append(os.Environ(), env...), Stdout: reportWrite, Stderr: &output,
 		Input: true,
 	})
@@ -141,7 +117,7 @@ func startGroupChild(t *testing.T, g *pgroup, mode string, env ...string) (*proc
 	t.Cleanup(func() {
 		p.Kill()
 		p.Wait()
-		p.Close()
+		p.Close(0)
 		start.Close()
 		report.Close()
 	})
@@ -282,15 +258,15 @@ func TestFiles(t *testing.T) {
 func TestDescendants(t *testing.T) {
 	for _, tt := range []struct {
 		name     string
-		stop     func(*process) error
+		stop     func(*Child) error
 		detached bool
 	}{
 		{"exit", nil, false},
-		{"kill", (*process).Kill, false},
-		{"close", (*process).Close, false},
+		{"kill", (*Child).Kill, false},
+		{"close", func(c *Child) error { _, err := c.Close(0); return err }, false},
 		{"exit-detached", nil, true},
-		{"kill-detached", (*process).Kill, true},
-		{"close-detached", (*process).Close, true},
+		{"kill-detached", (*Child).Kill, true},
+		{"close-detached", func(c *Child) error { _, err := c.Close(0); return err }, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			listener := listenDescendant(t)
@@ -319,7 +295,7 @@ func TestDescendants(t *testing.T) {
 			if tt.stop == nil && state != 17 {
 				t.Fatalf("exit = %v: %s", state, output)
 			}
-			if err := p.Close(); err != nil {
+			if _, err := p.Close(0); err != nil {
 				t.Fatal(err)
 			}
 			descendant.Check(true)
@@ -360,13 +336,13 @@ func TestInheritedPipes(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, err := newTestPGroup(t).Start(t.Context(), Command{
-		Path: self, Args: []string{childArg, "report"},
+		Path: self, Args: []string{processChildArg, "report"},
 		Pipes: []PipeDirection{PipeRead, PipeWrite},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { p.Close() })
+	t.Cleanup(func() { p.Close(0) })
 	pipes := p.Pipes()
 	if _, err := pipes[0].Write([]byte{1}); err != nil {
 		t.Fatal(err)

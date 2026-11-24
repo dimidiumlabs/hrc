@@ -21,6 +21,8 @@ import (
 const childArg = "hrc-runtime-child"
 
 func TestMain(m *testing.M) {
+	processTestChild()
+	childTestMain()
 	if len(os.Args) > 1 && os.Args[1] == childArg {
 		fmt.Fprintln(os.Stdout, "ready")
 		io.Copy(io.Discard, os.Stdin)

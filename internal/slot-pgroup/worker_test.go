@@ -7,12 +7,38 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"dimidiumlabs.io/hrc/internal/provider-github/worker"
 )
+
+func TestMain(m *testing.M) {
+	if len(os.Args) == 4 && os.Args[1] == "spawnclient" {
+		handle, err := strconv.ParseUint(os.Args[2], 10, 64)
+		if err != nil {
+			os.Exit(51)
+		}
+		input := os.NewFile(uintptr(handle), "worker-input")
+		data, err := io.ReadAll(input)
+		if err != nil {
+			os.Exit(52)
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			os.Exit(53)
+		}
+		json.NewEncoder(os.Stdout).Encode(map[string]string{
+			"input": string(data), "cwd": cwd, "layer": os.Getenv("HRC_LAUNCH_LAYER"),
+			"dotenv": os.Getenv("HRC_LAUNCH_DOTENV"), "tracking": os.Getenv("RUNNER_TRACKING_GROUP"),
+		})
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
 
 // The adapter owns inherited handles, installation environment and slot identity.
 // Worker message framing is tested separately in the worker package.
@@ -45,7 +71,7 @@ func TestStartWorkerPipesEnvironmentAndReuse(t *testing.T) {
 		}
 		input.Close()
 		code, err := p.Wait()
-		p.Close()
+		p.Close(0)
 		if err != nil || code != 0 {
 			t.Fatalf("worker: %d %v", code, err)
 		}
@@ -74,7 +100,7 @@ func TestStartWorkerPipesEnvironmentAndReuse(t *testing.T) {
 	}
 	p, _, err := s.StartWorker(t.Context(), worker.Config{Path: self, WorkDir: s.Cwd(), Dir: assets}, nil)
 	if err == nil {
-		defer p.Close()
+		defer p.Close(0)
 		if _, err := p.Wait(); err == nil {
 			t.Fatal("invalid environment file accepted")
 		}

@@ -3,22 +3,23 @@
 
 //go:build windows
 
-package slotpgroup
+package runtime
 
 import (
 	"errors"
 	"time"
 	"unsafe"
 
-	"dimidiumlabs.io/hrc/internal/config"
 	"golang.org/x/sys/windows"
+
+	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 )
 
 type pgroupPlatform struct {
 	job windows.Handle
 }
 
-func (g *pgroup) configure() error {
+func (g *Group) configure() error {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return err
@@ -43,16 +44,16 @@ type jobAccounting struct {
 	ActiveProcesses, TotalTerminatedProcesses          uint32
 }
 
-func (g *pgroup) release() error {
+func (g *Group) release() error {
 	// Normal cleanup has already scanned RUNNER_TRACKING_GROUP, just as on
 	// Unix. The job is only a final safety net, including KILL_ON_JOB_CLOSE
-	// if the controller crashes before it can scan environments.
+	// if the monitor crashes before it can scan environments.
 	err := windows.TerminateJobObject(g.platform.job, 1)
 	if err == nil {
 		// Termination is asynchronous. Wait for process teardown before the
 		// slot removes its workspace (open working directories lock Windows
 		// directories against deletion).
-		deadline := time.Now().Add(config.ProcessGroupCleanupTimeout)
+		deadline := time.Now().Add(hrcconfig.ProcessGroupCleanupTimeout)
 		for {
 			var info jobAccounting
 			err = windows.QueryInformationJobObject(g.platform.job, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil)
@@ -63,7 +64,7 @@ func (g *pgroup) release() error {
 				err = errors.New("process group cleanup timed out")
 				break
 			}
-			time.Sleep(config.ProcessGroupPollInterval)
+			time.Sleep(hrcconfig.ProcessGroupPollInterval)
 		}
 	}
 	err = errors.Join(err, windows.CloseHandle(g.platform.job))

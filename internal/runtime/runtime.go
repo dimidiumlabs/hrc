@@ -1,9 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
 // SPDX-License-Identifier: BSD-3-Clause
 
-// Package runtime extends the standard runtime package with stateless platform
-// queries and IPC primitives. It does not cache readings or apply runner
-// configuration, reservation or process-lifetime policies.
+// Package runtime provides platform queries, IPC and OS process ownership.
+// Child, Pool and Group know nothing about jobs or provider protocols.
 package runtime
 
 import (

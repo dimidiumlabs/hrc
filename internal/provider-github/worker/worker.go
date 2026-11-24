@@ -314,7 +314,7 @@ func (w *Worker) finish(result Result, err error) error {
 	// owned by the slot, which remains available for later jobs.
 	var processErr error
 	if w.process != nil {
-		processErr = w.process.Close()
+		_, processErr = w.process.Close(0)
 	}
 	w.closePipes()
 	w.cleanupErr = errors.Join(processErr, w.pipeErr)

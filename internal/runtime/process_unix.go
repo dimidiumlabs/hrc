@@ -3,7 +3,7 @@
 
 //go:build !windows
 
-package slotpgroup
+package runtime
 
 import (
 	"os"
@@ -14,7 +14,7 @@ import (
 )
 
 // configure starts the child in a process group of its own.
-func (p *process) configure(files []*os.File) error {
+func (p *Child) configure(files []*os.File) error {
 	p.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	p.cmd.ExtraFiles = files
 	for i := range files {
@@ -23,7 +23,7 @@ func (p *process) configure(files []*os.File) error {
 	return nil
 }
 
-func (p *process) attach() error { return nil }
+func (p *Child) attach() error { return nil }
 
 func findTrackedProcess(pid int) (*os.Process, error) {
 	return os.FindProcess(pid)
@@ -51,4 +51,4 @@ func testSendInterrupt() error {
 	return group.Signal(os.Interrupt)
 }
 
-func (p *process) closeInherited() {}
+func (p *Child) closeInherited() {}

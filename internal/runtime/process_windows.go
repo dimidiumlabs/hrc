@@ -3,7 +3,7 @@
 
 //go:build windows
 
-package slotpgroup
+package runtime
 
 import (
 	"errors"
@@ -17,10 +17,10 @@ import (
 )
 
 // configure gives the child a console of its own.
-func (p *process) configure(files []*os.File) error {
+func (p *Child) configure(files []*os.File) error {
 	// The runner cancels a step with GenerateConsoleCtrlEvent on the step's
 	// console, which reaches every process attached to it. A console of its own
-	// keeps that Ctrl+C away from the controller and the other Workers.
+	// keeps that Ctrl+C away from the parent and the other Workers.
 	p.cmd.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: windows.CREATE_NO_WINDOW,
 	}
@@ -36,9 +36,12 @@ func (p *process) configure(files []*os.File) error {
 	return nil
 }
 
-// attach puts the child into the pgroup's crash-cleanup job. Runner.Worker is
+// attach puts the child into the Group's crash-cleanup job. Runner.Worker is
 // still waiting for its initial NewJobRequest, so its job steps inherit it.
-func (p *process) attach() error {
+func (p *Child) attach() error {
+	if p.group == nil {
+		return nil
+	}
 	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(p.cmd.Process.Pid))
 	if err != nil {
 		return err
@@ -106,7 +109,7 @@ func testSendInterrupt() error {
 	return windows.GenerateConsoleCtrlEvent(windows.CTRL_C_EVENT, 0)
 }
 
-func (p *process) closeInherited() {
+func (p *Child) closeInherited() {
 	if p.cmd.SysProcAttr == nil {
 		return
 	}

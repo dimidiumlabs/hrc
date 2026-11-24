@@ -10,6 +10,8 @@ import "time"
 const (
 	// ProcessStartTimeout bounds launch, connection and protocol initialization.
 	ProcessStartTimeout = 30 * time.Second
+	// ProcessExitTimeout allows a child to exit after protocol retirement.
+	ProcessExitTimeout = 5 * time.Second
 	// ProcessWaitDelay bounds draining inherited stdout/stderr after process exit.
 	ProcessWaitDelay = 5 * time.Second
 	// ProcessGroupCleanupTimeout bounds termination of a slot's descendants.

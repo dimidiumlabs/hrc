@@ -12,6 +12,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Environment supplies paths and the slot-specific GitHub Worker launch.
@@ -25,7 +26,7 @@ type Environment interface {
 type Process interface {
 	Wait() (int, error)
 	Kill() error
-	Close() error
+	Close(time.Duration) (error, error)
 }
 
 // Config describes paths in the slot, regardless of where hrcm is running.

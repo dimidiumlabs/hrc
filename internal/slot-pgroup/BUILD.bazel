@@ -21,12 +21,7 @@ go_library(
         "//internal/provider-github/worker",
         "//internal/runtime",
         "//internal/slot",
-    ] + select({
-        "@rules_go//go/platform:windows": [
-            "@org_golang_x_sys//windows",
-        ],
-        "//conditions:default": [],
-    }),
+    ],
 )
 
 go_test(
