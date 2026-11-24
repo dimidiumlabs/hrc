@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Nikolay Govorov
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: MIT
 
 """Check Worker runtime settings with its executable outside the workspace."""
 

@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Nikolay Govorov
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: MIT
 
 load("@bazel_skylib//rules:select_file.bzl", "select_file")
 load("@rules_go//go:def.bzl", "go_library", "go_test")

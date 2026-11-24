@@ -168,8 +168,11 @@ through an independent trusted source before trusting it.
 License
 -------
 
-Source code is licensed under `BSD-3-Clause <../LICENSES/BSD-3-Clause.txt>`__.
+Shared core and tooling are licensed under
+`BSD-3-Clause <../LICENSES/BSD-3-Clause.txt>`__. The GitHub provider
+(``internal/provider-github/**``), including its runner integration, tests, build
+files and patches, is licensed under `MIT <../LICENSES/MIT.txt>`__.
 Documentation is licensed under `CC-BY-4.0 <../LICENSES/CC-BY-4.0.txt>`__.
 
-The bundled GitHub runner is `MIT <../LICENSES/MIT.txt>`__ licensed;
-its license and .NET dependency notices are included in the runner payload.
+The bundled upstream GitHub runner is also MIT licensed; its license and .NET
+dependency notices are included in the runner payload.

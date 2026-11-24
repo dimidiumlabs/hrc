@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: MIT
 
 // Package worker executes one job using the .NET Runner.Worker process.
 // It manages local configuration, environment, IPC and process lifetime. Job

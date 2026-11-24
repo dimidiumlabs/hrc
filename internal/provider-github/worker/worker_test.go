@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: MIT
 
 package worker_test
 

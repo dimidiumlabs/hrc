@@ -19,6 +19,8 @@ Changed
 
 - Reread GitHub credentials on authentication renewal; require exactly one of
   ``app``, ``pat`` or ``jwt``.
+- Re-license the GitHub provider, including its runner integration, tests, build
+  files and patches, under MIT. Shared core and tooling remain BSD-3-Clause.
 
 Fixed
 ~~~~~

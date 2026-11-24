@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: MIT
 
 // Package github implements provider contracts using GitHub scale sets,
 // independently supervised Listener jobs and the GitHub Worker.

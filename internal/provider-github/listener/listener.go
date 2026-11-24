@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: MIT
 
 // Package listener implements runner v2 Broker and Run Service communication.
 // It acquires and supervises one job without controlling its execution.
