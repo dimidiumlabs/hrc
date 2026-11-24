@@ -13,10 +13,7 @@ import (
 	"dimidiumlabs.io/hrc/internal/slot"
 )
 
-const (
-	Version        = 1
-	MaxMessageSize = 64 << 20
-)
+const Version = 1
 
 // Only stable public errors cross IPC; provider errors retain their message.
 var wireErrors = map[string]error{

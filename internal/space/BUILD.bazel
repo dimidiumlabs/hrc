@@ -30,6 +30,7 @@ go_library(
     visibility = ["//visibility:public"],
     embed = [":space_go_grpc"],
     deps = [
+        "//internal/config",
         "//internal/provider",
         "//internal/slot",
         "@org_golang_google_grpc//:grpc",

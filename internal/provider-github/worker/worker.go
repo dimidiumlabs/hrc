@@ -16,8 +16,9 @@ import (
 	"io"
 	"os"
 	"sync"
-	"time"
 	"unicode/utf16"
+
+	"dimidiumlabs.io/hrc/internal/config"
 )
 
 // Result uses the upstream TaskResult values. Unknown means the process never
@@ -150,7 +151,7 @@ func (w *Worker) StartJob(ctx context.Context, payload json.RawMessage, diagDir 
 		w.mu.Unlock()
 		return ErrAlreadyStarted
 	}
-	start, cancel := context.WithTimeout(ctx, 30*time.Second)
+	start, cancel := context.WithTimeout(ctx, config.ProcessStartTimeout)
 	w.started, w.startCancel = true, cancel
 	w.mu.Unlock()
 	defer cancel()

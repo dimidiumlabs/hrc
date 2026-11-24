@@ -8,6 +8,7 @@ import (
 	"net"
 	"sync"
 
+	"dimidiumlabs.io/hrc/internal/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -29,7 +30,7 @@ func dial(conn net.Conn) (*grpc.ClientConn, error) {
 			}
 			return accepted, nil
 		}),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxMessageSize), grpc.MaxCallSendMsgSize(MaxMessageSize)),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(config.GRPCMaxMessageSize), grpc.MaxCallSendMsgSize(config.GRPCMaxMessageSize)),
 	)
 }
 

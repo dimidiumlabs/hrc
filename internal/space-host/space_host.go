@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
 	platformruntime "dimidiumlabs.io/hrc/internal/runtime"
 	"dimidiumlabs.io/hrc/internal/space"
@@ -145,7 +146,7 @@ func (s *SpaceHost) start(ctx context.Context) error {
 	}
 	defer listener.Close()
 
-	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
+	startup, cancel := context.WithTimeout(ctx, hrcconfig.ProcessStartTimeout)
 	defer cancel()
 
 	stop := context.AfterFunc(startup, func() { listener.Close() })
@@ -190,7 +191,7 @@ func (s *SpaceHost) cleanup() (exitErr, err error) {
 
 		if s.Status() != space.Connecting {
 			// Closing RPC lets a connected scheduler drain its Runs first.
-			timer := time.NewTimer(30 * time.Second)
+			timer := time.NewTimer(hrcconfig.MonitorExitTimeout)
 			select {
 			case exitErr = <-waited:
 				waited = nil

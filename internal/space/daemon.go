@@ -11,8 +11,8 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
-	"time"
 
+	"dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
 	"google.golang.org/grpc"
 )
@@ -275,7 +275,7 @@ func (r *run) Result() (provider.Result, []byte) {
 }
 
 func (r *run) send(ctx context.Context, command *RunCommand) error {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, config.ControlTimeout)
 	defer cancel()
 	select {
 	case <-ctx.Done():

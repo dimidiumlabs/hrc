@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
 	"dimidiumlabs.io/hrc/internal/provider-github/worker"
 
@@ -165,7 +166,7 @@ func (q *Queue) serve(ctx context.Context, demand provider.Demand, jobs chan<- p
 							case jobs <- job:
 								return // Handle.Close now owns the reservation.
 							case <-ctx.Done():
-								cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+								cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), hrcconfig.JobCleanupTimeout)
 								defer cancel()
 								err = job.Finish(cleanup, provider.Canceled, nil)
 								err = errors.Join(err, job.Close(cleanup))

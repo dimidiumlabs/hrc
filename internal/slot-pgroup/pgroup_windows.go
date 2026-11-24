@@ -10,6 +10,7 @@ import (
 	"time"
 	"unsafe"
 
+	"dimidiumlabs.io/hrc/internal/config"
 	"golang.org/x/sys/windows"
 )
 
@@ -51,7 +52,7 @@ func (g *pgroup) release() error {
 		// Termination is asynchronous. Wait for process teardown before the
 		// slot removes its workspace (open working directories lock Windows
 		// directories against deletion).
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(config.ProcessGroupCleanupTimeout)
 		for {
 			var info jobAccounting
 			err = windows.QueryInformationJobObject(g.platform.job, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil)
@@ -62,7 +63,7 @@ func (g *pgroup) release() error {
 				err = errors.New("process group cleanup timed out")
 				break
 			}
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(config.ProcessGroupPollInterval)
 		}
 	}
 	err = errors.Join(err, windows.CloseHandle(g.platform.job))

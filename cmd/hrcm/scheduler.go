@@ -10,8 +10,8 @@ import (
 	"net"
 	"os"
 	"sync"
-	"time"
 
+	"dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
 	"dimidiumlabs.io/hrc/internal/slot"
 	"dimidiumlabs.io/hrc/internal/space"
@@ -268,7 +268,7 @@ func (s *scheduler) execute(e *execution, job provider.Job) (result provider.Res
 			e.mu.Lock()
 			kind := e.requested
 			e.mu.Unlock()
-			send, stop := context.WithTimeout(context.Background(), 30*time.Second)
+			send, stop := context.WithTimeout(context.Background(), config.ControlTimeout)
 			switch kind {
 			case provider.StopCancel:
 				err = local.Stop(send, provider.StopCancel)

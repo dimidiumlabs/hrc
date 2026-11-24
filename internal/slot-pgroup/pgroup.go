@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"dimidiumlabs.io/hrc/internal/config"
 	platformruntime "dimidiumlabs.io/hrc/internal/runtime"
 )
 
@@ -110,7 +111,7 @@ func trackedProcesses(id string) ([]int, error) {
 func (g *pgroup) killTracked() error {
 	// Rescan after killing: a member may have forked after the snapshot. Bound
 	// cleanup so an unkillable process cannot block controller shutdown forever.
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(config.ProcessGroupCleanupTimeout)
 	for {
 		pids, err := trackedProcesses(g.id)
 		if err != nil || len(pids) == 0 {
@@ -133,6 +134,6 @@ func (g *pgroup) killTracked() error {
 		if time.Now().After(deadline) {
 			return errors.New("process group cleanup timed out")
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(config.ProcessGroupPollInterval)
 	}
 }

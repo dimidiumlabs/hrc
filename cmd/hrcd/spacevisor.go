@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
 	"dimidiumlabs.io/hrc/internal/space"
 )
@@ -59,7 +60,7 @@ func (v *SpaceVisor) Submit(ctx context.Context, job *acquiredJob) {
 		if host == nil {
 			err = errors.Join(fmt.Errorf("unknown space %q", job.space), finishUnstarted(ctx, job.handle, result))
 		} else {
-			result, err = runJob(ctx, job.handle, host.environment, controllerOptions{Name: job.forge}, time.Minute)
+			result, err = runJob(ctx, job.handle, host.environment, controllerOptions{Name: job.forge}, hrcconfig.JobCancelGrace)
 		}
 		slog.Info("Job completed", "forge", job.forge, "job", job.handle.Job().ID(), "result", result.String(), "err", err)
 		// Execution and supervision errors belong to this job. runJob has
@@ -133,16 +134,16 @@ func runJob(ctx context.Context, job provider.Handle, environment space.Space, o
 	var local provider.Run
 	defer func() {
 		if local != nil {
-			stop, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+			stop, cancel := context.WithTimeout(context.WithoutCancel(ctx), hrcconfig.ControlTimeout)
 			err = errors.Join(err, local.Stop(stop, provider.StopForce))
 			cancel()
 			err = errors.Join(err, <-local.Done())
 			_, data = local.Result()
 		}
-		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), hrcconfig.JobFinishTimeout)
 		err = errors.Join(err, job.Finish(cleanup, result, data))
 		cancel()
-		cleanup, cancel = context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		cleanup, cancel = context.WithTimeout(context.WithoutCancel(ctx), hrcconfig.JobCloseTimeout)
 		err = errors.Join(err, job.Close(cleanup))
 		cancel()
 	}()
@@ -150,7 +151,7 @@ func runJob(ctx context.Context, job provider.Handle, environment space.Space, o
 		return result, errors.New("negative job cancellation timeout")
 	}
 	if grace == 0 {
-		grace = time.Minute
+		grace = hrcconfig.JobCancelGrace
 	}
 	if stopped, status, cause := pendingStop(ctx, job); stopped {
 		return status, cause
@@ -263,7 +264,7 @@ func executeJob(ctx context.Context, events <-chan provider.Event, local provide
 	}
 	shutdown, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), grace)
 	defer cancelShutdown()
-	send, cancel := context.WithTimeout(shutdown, 30*time.Second)
+	send, cancel := context.WithTimeout(shutdown, hrcconfig.ControlTimeout)
 	var sendErr error
 	if shutdownRequested {
 		sendErr = local.Stop(send, provider.StopShutdown)
@@ -281,7 +282,7 @@ func executeJob(ctx context.Context, events <-chan provider.Event, local provide
 		return actual, data, errors.Join(cause, exitErr)
 	case <-shutdown.Done():
 	}
-	force, cancelForce := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	force, cancelForce := context.WithTimeout(context.WithoutCancel(ctx), hrcconfig.ControlTimeout)
 	defer cancelForce()
 	stopErr := local.Stop(force, provider.StopForce)
 	if errors.Is(cause, errJobCanceled) {

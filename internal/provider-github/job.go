@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
 	"dimidiumlabs.io/hrc/internal/provider-github/listener"
 	"dimidiumlabs.io/hrc/internal/provider-github/worker"
@@ -54,7 +55,7 @@ func (q *Queue) acquire(ctx context.Context, client *scaleset.Client, scaleSetID
 	}
 	go j.watch()
 	if err != nil {
-		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), hrcconfig.JobCleanupTimeout)
 		defer cancel()
 		if raw != nil {
 			err = errors.Join(err, j.Finish(cleanup, provider.Failed, nil))

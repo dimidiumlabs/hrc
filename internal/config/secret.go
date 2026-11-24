@@ -161,14 +161,14 @@ func (c *Secret) read(ctx context.Context) (string, error) {
 }
 
 func (c *Secret) run(ctx context.Context) (string, error) {
-	timeout := 30 * time.Second
+	timeout := SecretCommandTimeout
 	if c.Timeout != "" {
 		timeout, _ = time.ParseDuration(c.Timeout)
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, c.Command[0], c.Command[1:]...)
-	cmd.WaitDelay = time.Second
+	cmd.WaitDelay = SecretCommandWaitDelay
 	output := &secretOutput{}
 	cmd.Stdout = output
 	cmd.Stderr = io.Discard

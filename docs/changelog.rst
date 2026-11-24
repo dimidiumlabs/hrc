@@ -24,6 +24,9 @@ Changed
 - Rename the space monitor executable from ``hrcs`` to ``hrcm``. Update
   installation commands and service PATHs; the Ansible install role removes
   the obsolete ``hrcs`` binary.
+- Centralize shared local RPC limits and lifecycle, cleanup, retry and secret
+  command timeouts in ``internal/config``, without changing their values. The
+  local gRPC message limit remains 64 MiB.
 
 Fixed
 ~~~~~

@@ -9,6 +9,7 @@ import (
 	"net"
 	"sync"
 
+	"dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
 	"dimidiumlabs.io/hrc/internal/space"
 	"google.golang.org/grpc"
@@ -31,7 +32,7 @@ type Scheduler struct {
 var _ space.SchedulerServer = (*Scheduler)(nil)
 
 func (s *Scheduler) Serve(ctx context.Context, conn net.Conn) error {
-	server := grpc.NewServer(grpc.MaxRecvMsgSize(space.MaxMessageSize), grpc.MaxSendMsgSize(space.MaxMessageSize), grpc.WaitForHandlers(true))
+	server := grpc.NewServer(grpc.MaxRecvMsgSize(config.GRPCMaxMessageSize), grpc.MaxSendMsgSize(config.GRPCMaxMessageSize), grpc.WaitForHandlers(true))
 	space.RegisterSchedulerServer(server, s)
 	watched := &watchedConn{Conn: conn, done: make(chan struct{})}
 	listener := &singleListener{conn: watched, done: make(chan struct{})}

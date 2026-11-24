@@ -10,8 +10,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"time"
 
+	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	platformruntime "dimidiumlabs.io/hrc/internal/runtime"
 )
 
@@ -78,7 +78,7 @@ func (g *pgroup) Start(ctx context.Context, config Command) (*process, error) {
 	}
 	p.cmd.Dir, p.cmd.Env = config.Dir, g.environment(env)
 	p.cmd.Stdout, p.cmd.Stderr = config.Stdout, config.Stderr
-	p.cmd.WaitDelay = 5 * time.Second
+	p.cmd.WaitDelay = hrcconfig.ProcessWaitDelay
 	var childPipes []*os.File
 	defer func() {
 		for _, f := range childPipes {

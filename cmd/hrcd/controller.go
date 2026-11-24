@@ -104,7 +104,7 @@ func (c *Controller) Serve(ctx context.Context) <-chan *acquiredJob {
 	var wg sync.WaitGroup
 	for i, forge := range c.forges {
 		wg.Go(func() {
-			delay := 2 * time.Second
+			delay := hrcconfig.QueueRetryMin
 			for acquisition.Err() == nil {
 				for handle := range forge.queue.Serve(acquisition, forge.demand) {
 					execution, shutdown := context.WithCancelCause(context.WithoutCancel(ctx))
@@ -115,7 +115,7 @@ func (c *Controller) Serve(ctx context.Context) <-chan *acquiredJob {
 					c.mu.Unlock()
 					select {
 					case jobs <- job:
-						delay = 2 * time.Second
+						delay = hrcconfig.QueueRetryMin
 					case <-acquisition.Done():
 						if err := finishUnstarted(ctx, handle, provider.Canceled); err != nil {
 							failures[i] = errors.Join(failures[i], fmt.Errorf("forge %q: %w", forge.id, err))
@@ -147,7 +147,7 @@ func (c *Controller) Serve(ctx context.Context) <-chan *acquiredJob {
 				}
 				open++
 				queues.Unlock()
-				delay = min(2*delay, time.Minute)
+				delay = min(2*delay, hrcconfig.QueueRetryMax)
 			}
 		})
 	}
@@ -180,10 +180,10 @@ func (c *Controller) Serve(ctx context.Context) <-chan *acquiredJob {
 func (c *Controller) Close() error { <-c.done; c.tasks.Wait(); return c.err }
 
 func finishUnstarted(ctx context.Context, handle provider.Handle, result provider.Result) error {
-	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), hrcconfig.JobCleanupTimeout)
 	defer cancel()
 	err := handle.Finish(cleanup, result, nil)
-	closeCtx, closeCancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+	closeCtx, closeCancel := context.WithTimeout(context.WithoutCancel(ctx), hrcconfig.JobCleanupTimeout)
 	defer closeCancel()
 	return errors.Join(err, handle.Close(closeCtx))
 }
