@@ -342,7 +342,7 @@
     "//tools/rules_msbuild:dependencies.bzl%dependencies": {
       "os:linux,arch:amd64": {
         "bzlTransitiveDigest": "3Eoej/hUK4QlzhyU++2tVmC8x+6GSeh27TLQDId5guQ=",
-        "usagesDigest": "lv7JVb+koUx+7dByANTWjCB0cotEIkwPOMFtIwys5TA=",
+        "usagesDigest": "m/xIWxq9hSpOjFuLdELvCyKz2dCKOATZERWJ/7fadcs=",
         "recordedInputs": [
           "REPO_MAPPING:,actions_runner +http_archive+actions_runner"
         ],
@@ -375,7 +375,9 @@
                 "@@+http_archive+actions_runner//:Runner.Common/Runner.Common.csproj",
                 "@@+http_archive+actions_runner//:Runner.Worker/Runner.Worker.csproj"
               ],
-              "staged_files": {}
+              "staged_files": {
+                "@@//cmd/hrcp-github/worker:csharp/Worker.props": "Runner.Worker/Hrc/Worker.props"
+              }
             }
           }
         }

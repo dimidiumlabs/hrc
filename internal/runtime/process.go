@@ -24,15 +24,14 @@ const (
 
 // Command describes a direct child, optionally attached to a Group.
 // Pipes requests anonymous pipes; child descriptors/handles are appended to Args.
-// Child.Close closes their parent ends. Env overrides the inherited environment
-// and values loaded from the optional EnvFile.
+// Child.Close closes their parent ends. Env follows exec.Cmd semantics.
 type Command struct {
-	Group              *Group
-	Path, Dir, EnvFile string
-	Args, Env          []string
-	Stdout, Stderr     io.Writer
-	Input              bool
-	Pipes              []PipeDirection
+	Group          *Group
+	Path, Dir      string
+	Args, Env      []string
+	Stdout, Stderr io.Writer
+	Input          bool
+	Pipes          []PipeDirection
 }
 
 // StartChild starts a child without a control socket. The caller owns its cleanup.
@@ -72,13 +71,9 @@ func (p *Child) startProcess(ctx context.Context, config Command) error {
 	}
 	p.group = g
 	p.cmd = exec.Command(path, config.Args...)
-	env, err := environment(config.EnvFile, config.Env)
-	if err != nil {
-		return err
-	}
-	p.cmd.Dir, p.cmd.Env = config.Dir, env
+	p.cmd.Dir, p.cmd.Env = config.Dir, config.Env
 	if g != nil {
-		p.cmd.Env = g.environment(env)
+		p.cmd.Env = g.environment(config.Env)
 	}
 	p.cmd.Stdout, p.cmd.Stderr = config.Stdout, config.Stderr
 	p.cmd.WaitDelay = hrcconfig.ProcessWaitDelay

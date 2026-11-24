@@ -21,7 +21,7 @@ import (
 
 	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
-	github "dimidiumlabs.io/hrc/internal/provider-github"
+	"dimidiumlabs.io/hrc/internal/runtime"
 	"dimidiumlabs.io/hrc/internal/slot"
 	slotpgroup "dimidiumlabs.io/hrc/internal/slot-pgroup"
 )
@@ -30,7 +30,7 @@ var (
 	help    = flag.Bool("help", false, "Show this help")
 	version = flag.Bool("version", false, "Show hrcm version")
 
-	socket = flag.String("connect", "", "Local scheduler socket")
+	socket = flag.String("connect", "", "Local monitor socket")
 )
 
 func main() {
@@ -59,7 +59,7 @@ func main() {
 		err = serve(ctx, conn, func(cfg *space.Config) (*scheduler, error) { return configure(cfg, nil) })
 	}
 	if err != nil {
-		slog.Error("Scheduler stopped", "err", err)
+		slog.Error("Monitor stopped", "err", err)
 		os.Exit(1)
 	}
 }
@@ -72,21 +72,20 @@ func configure(config *space.Config, create func(string) (slot.Slot, error)) (*s
 	if err := json.Unmarshal(config.SlotConfig, &slotConfig); err != nil || slotConfig.Dir == "" {
 		return nil, errors.New("pgroup root is required")
 	}
-	var githubConfig *github.WorkerConfig
+	providers := make(map[string]provider.ProcessConfig, len(config.Providers))
 	for name, data := range config.Providers {
-		switch name {
-		case "github":
-			var cfg github.WorkerConfig
-			if err := json.Unmarshal(data, &cfg); err != nil {
-				return nil, err
-			}
-			githubConfig = &cfg
-		default:
-			return nil, fmt.Errorf("unknown provider %q", name)
+		var cfg provider.ProcessConfig
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return nil, err
 		}
+		if err := cfg.Validate(); err != nil {
+			return nil, fmt.Errorf("provider %q: %w", name, err)
+		}
+		providers[name] = cfg
 	}
+	pool := &runtime.Pool{}
 	if create == nil {
-		create = func(dir string) (slot.Slot, error) { return slotpgroup.New(dir, githubConfig) }
+		create = func(dir string) (slot.Slot, error) { return slotpgroup.New(dir, providers, pool) }
 	}
 	s, err := newScheduler(int(config.Capacity), !config.Ephemeral, func(ctx context.Context, name string) (slot.Slot, error) {
 		if err := ctx.Err(); err != nil {
@@ -97,18 +96,12 @@ func configure(config *space.Config, create func(string) (slot.Slot, error)) (*s
 	if err != nil {
 		return nil, err
 	}
+	s.pool = pool
 	s.decode = func(name string, payload []byte) (provider.Job, error) {
-		var job provider.Job
-		switch name {
-		case "github":
-			job = github.NewJob()
-		default:
+		if _, ok := providers[name]; !ok {
 			return nil, fmt.Errorf("%w: %s", slot.ErrProviderUnavailable, name)
 		}
-		if err := job.Unmarshal(payload); err != nil {
-			return nil, err
-		}
-		return job, nil
+		return &provider.OpaqueJob{Provider: name, Payload: payload}, nil
 	}
 	return s, nil
 }

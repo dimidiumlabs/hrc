@@ -71,7 +71,7 @@ For example, with forges with IDs ``checks`` and ``builds`` and no explicit labe
        steps:
          - run: echo "Use the space configured with ephemeral disabled"
 
-A reusable slot retains files and processes until controller shutdown; it does
+A reusable slot retains files and processes until daemon shutdown; it does
 not guarantee that a particular job gets the same slot every time. Make build
 commands safe for either a cold or warm workspace. See
 `forge configuration <../configuration.rst#spaces-and-forges>`__ and

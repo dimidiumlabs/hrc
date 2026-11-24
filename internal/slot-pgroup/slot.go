@@ -7,14 +7,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"dimidiumlabs.io/hrc/internal/provider"
-	github "dimidiumlabs.io/hrc/internal/provider-github"
-	"dimidiumlabs.io/hrc/internal/provider-github/worker"
 	"dimidiumlabs.io/hrc/internal/runtime"
 	"dimidiumlabs.io/hrc/internal/slot"
 )
@@ -34,16 +31,20 @@ type Slot struct {
 	destroyErr    error
 }
 
-// New creates a process slot with explicitly configured GitHub execution.
-func New(dir string, config *github.WorkerConfig) (*Slot, error) {
+// New creates a process slot with trusted provider commands.
+func New(dir string, providers map[string]provider.ProcessConfig, pool *runtime.Pool) (*Slot, error) {
 	return newSlot(dir, func(ctx context.Context, target *Slot, job provider.Job) (provider.Run, error) {
-		switch job.Type() {
-		case "github":
-			if config != nil {
-				return config.Run(ctx, target, job)
-			}
+		config, ok := providers[job.Type()]
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", slot.ErrProviderUnavailable, job.Type())
 		}
-		return nil, fmt.Errorf("%w: %s", slot.ErrProviderUnavailable, job.Type())
+		payload, err := job.Marshal()
+		if err != nil {
+			return nil, err
+		}
+		return provider.StartWorker(ctx, config, payload, runtime.Command{
+			Group: target.group, Dir: target.dir, Stdout: os.Stdout, Stderr: os.Stderr,
+		}, pool)
 	})
 }
 
@@ -66,28 +67,6 @@ func (s *Slot) Cwd() string                 { return s.dir }
 func (*Slot) Type() string                  { return "pgroup" }
 func (s *Slot) Path(parts ...string) string { return filepath.Join(parts...) }
 func (s *Slot) Status() slot.Status         { s.mu.Lock(); defer s.mu.Unlock(); return s.status }
-
-// StartWorker uses GitHub's original spawnclient pipe protocol directly.
-func (s *Slot) StartWorker(ctx context.Context, config worker.Config, env []string) (worker.Process, io.WriteCloser, error) {
-	path, err := runtime.LookPath(config.Path)
-	if err != nil {
-		return nil, nil, fmt.Errorf("find Worker: %w", err)
-	}
-	dir := config.WorkDir
-	if dir == "" {
-		dir = s.dir
-	}
-	p, err := s.group.Start(ctx, runtime.Command{
-		Path: path, Dir: dir, Args: []string{"spawnclient"},
-		Env: env, EnvFile: s.Path(config.Dir, ".env"),
-		Pipes:  []runtime.PipeDirection{runtime.PipeRead, runtime.PipeWrite},
-		Stdout: config.Stdout, Stderr: config.Stderr,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return p, p.Pipes()[0], nil
-}
 
 func (s *Slot) Run(ctx context.Context, job provider.Job) (provider.Run, error) {
 	s.mu.Lock()

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
 // SPDX-License-Identifier: BSD-3-Clause
 
-// Package spacehost owns a directory and a separate host scheduler process.
+// Package spacehost owns a directory and a separate host monitor process.
 package spacehost
 
 import (
@@ -26,7 +26,7 @@ type SpaceHost struct {
 	mu sync.Mutex
 
 	child  *runtime.Child
-	pool   runtime.Pool
+	pool   *runtime.Pool
 	name   string
 	args   []string
 	config *space.Config
@@ -40,9 +40,9 @@ var (
 )
 
 // New prepares configuration only. Run launches hrcm on the first Job.
-func New(name, root string, command []string, config *space.Config) (*SpaceHost, error) {
+func New(name, root string, command []string, config *space.Config, pool *runtime.Pool) (*SpaceHost, error) {
 	if name == "" || root == "" || len(command) == 0 {
-		return nil, fmt.Errorf("%w: space name, root and scheduler command are required", space.ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: space name, root and monitor command are required", space.ErrInvalidConfig)
 	}
 
 	root, err := filepath.Abs(root)
@@ -53,7 +53,7 @@ func New(name, root string, command []string, config *space.Config) (*SpaceHost,
 	command = slices.Clone(command)
 	path, err := runtime.LookPath(command[0])
 	if err != nil {
-		return nil, fmt.Errorf("%w: find scheduler: %w", space.ErrInvalidConfig, err)
+		return nil, fmt.Errorf("%w: find monitor: %w", space.ErrInvalidConfig, err)
 	}
 	command[0] = path
 
@@ -62,6 +62,7 @@ func New(name, root string, command []string, config *space.Config) (*SpaceHost,
 		rootDir: root,
 		config:  proto.CloneOf(config),
 		args:    command,
+		pool:    pool,
 	}
 	space.Daemon.Delegate = &space
 	return &space, nil
@@ -119,16 +120,12 @@ func (s *SpaceHost) connect(ctx context.Context) error {
 	return failure
 }
 
-// start launches a scheduler after connect has retired the previous generation.
+// start launches a monitor after connect has retired the previous generation.
 // The caller holds s.mu and handles lifecycle status and error classification.
 func (s *SpaceHost) start(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
+	if err := os.MkdirAll(s.rootDir, 0700); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.rootDir, 0o700); err != nil {
-		return err
-	}
-
 	startup, cancel := context.WithTimeout(ctx, hrcconfig.ProcessStartTimeout)
 	defer cancel()
 	var err error
@@ -137,7 +134,7 @@ func (s *SpaceHost) start(ctx context.Context) error {
 		SocketArgs: func(socket string) []string { return []string{"-connect", socket} },
 	})
 	if err != nil {
-		return fmt.Errorf("start scheduler: %w", err)
+		return fmt.Errorf("start monitor: %w", err)
 	}
 	return s.Daemon.Connect(startup, s.child.Connection(), s.config)
 }

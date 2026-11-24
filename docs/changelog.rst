@@ -27,12 +27,27 @@ Changed
 - Centralize shared local RPC limits and lifecycle, cleanup, retry and secret
   command timeouts in ``internal/config``, without changing their values. The
   local gRPC message limit remains 64 MiB.
+- Isolate GitHub acquisition and execution in ``hrcp-github-queue`` and
+  ``hrcp-github-worker`` provider processes. The ``hrcd`` daemon coordinates
+  acquisition and routes jobs to a separate ``hrcm`` monitor for each space.
+  The worker replaces ``hrcw-github``; install all four executables together
+  and update service definitions when upgrading. The Ansible install role
+  removes the obsolete worker binary.
+- Pass runner settings and resource paths directly to the worker, without the
+  former runner configuration environment variables. Ignore ``.env`` files
+  rather than loading them into provider processes.
 
 Fixed
 ~~~~~
 
 - Count development versions across the full first-parent history so new release
   tags cannot reset the counter and block publication.
+- Isolate queue operation deadlines and cancellation from the shared session,
+  so a timed-out Finish or Close does not lose unrelated job leases.
+- Report invalid provider configuration explicitly and stop the daemon with a
+  nonzero exit status after draining jobs, instead of retrying indefinitely.
+- Preserve buffered terminal outcomes after worker exit and handle parent
+  retirement racing the worker's final shutdown reply.
 
 `0.5.0`_ - 2026-11-22
 ---------------------

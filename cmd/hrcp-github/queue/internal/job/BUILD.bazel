@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: MIT
+
+load("@rules_go//go:def.bzl", "go_library")
+load("//tools/check:sources.bzl", "check_sources")
+
+check_sources()
+
+go_library(
+    name = "job",
+    srcs = ["job.go"],
+    importpath = "dimidiumlabs.io/hrc/cmd/hrcp-github/queue/internal/job",
+    visibility = ["//cmd/hrcp-github/queue:__subpackages__"],
+    deps = ["//internal/provider"],
+)

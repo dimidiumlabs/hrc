@@ -145,12 +145,10 @@ http_archive(
     urls = ["https://github.com/actions/runner/archive/refs/tags/v%s.tar.gz" % RUNNER_VERSION],
     sha256 = "3b7549b6cd109cd534de3e904cb257cd8447c1d00dd96d2242b7747b3473ce1f",
     strip_prefix = "runner-%s/src" % RUNNER_VERSION,
-    build_file_content = 'load("@hrc//internal/provider-github/worker:runner.bzl", "runner_sources")\nrunner_sources(version = "%s")\n' % RUNNER_VERSION,
+    build_file_content = 'load("@hrc//cmd/hrcp-github/worker:runner.bzl", "runner_sources")\nrunner_sources(version = "%s")\n' % RUNNER_VERSION,
     patches = [
-        "//internal/provider-github/worker:patch/runtime-config.patch",
-        "//internal/provider-github/worker:patch/diagnostics.patch",
-        "//internal/provider-github/worker:patch/single-file.patch",
-        "//internal/provider-github/worker:patch/resources-layout.patch",
+        "//cmd/hrcp-github/worker:patch/runtime-config.patch",
+        "//cmd/hrcp-github/worker:patch/grpc.patch",
     ],
     patch_args = ["-p2"],
 )
@@ -176,6 +174,7 @@ msbuild_deps.feed(
         "Runner.Common",
         "Runner.Worker",
     ]]],
+    staged_files = {"//cmd/hrcp-github/worker:csharp/Worker.props": "Runner.Worker/Hrc/Worker.props"},
     properties = {
         "NuGetAudit": "false",
         "PublishSingleFile": "true",

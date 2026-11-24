@@ -1,0 +1,10 @@
+<!-- SPDX-FileCopyrightText: 2026 Nikolay Govorov -->
+<!-- SPDX-License-Identifier: MIT -->
+<Project>
+  <ItemGroup>
+    <PackageReference Include="Grpc.Net.Client" Version="2.71.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.71.0" PrivateAssets="All" />
+    <PackageReference Include="Google.Protobuf" Version="3.30.2" />
+    <Protobuf Include="Hrc/provider.proto" GrpcServices="Client" />
+  </ItemGroup>
+</Project>

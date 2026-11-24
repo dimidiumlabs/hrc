@@ -10,7 +10,7 @@ import "time"
 const (
 	// ProcessStartTimeout bounds launch, connection and protocol initialization.
 	ProcessStartTimeout = 30 * time.Second
-	// ProcessExitTimeout allows a child to exit after protocol retirement.
+	// ProcessExitTimeout allows a provider child to exit after protocol retirement.
 	ProcessExitTimeout = 5 * time.Second
 	// ProcessWaitDelay bounds draining inherited stdout/stderr after process exit.
 	ProcessWaitDelay = 5 * time.Second
@@ -24,6 +24,8 @@ const (
 const (
 	// ControlTimeout bounds delivery or handling of an execution stop command.
 	ControlTimeout = 30 * time.Second
+	// QueueStopTimeout bounds acknowledgement that acquisition has stopped.
+	QueueStopTimeout = 30 * time.Second
 	// JobCancelGrace is used when the provider supplies no cancellation grace.
 	JobCancelGrace   = time.Minute
 	JobFinishTimeout = time.Minute

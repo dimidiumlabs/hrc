@@ -190,7 +190,7 @@ func TestStopPreservesDoneError(t *testing.T) {
 }
 
 func TestUnsupportedWorker(t *testing.T) {
-	target, err := New(filepath.Join(t.TempDir(), "slot"), nil)
+	target, err := New(filepath.Join(t.TempDir(), "slot"), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

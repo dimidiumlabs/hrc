@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -17,25 +18,54 @@ import (
 
 	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
-	github "dimidiumlabs.io/hrc/internal/provider-github"
+	"dimidiumlabs.io/hrc/internal/runtime"
 	slotpgroup "dimidiumlabs.io/hrc/internal/slot-pgroup"
 	"dimidiumlabs.io/hrc/internal/space"
 	spacehost "dimidiumlabs.io/hrc/internal/space-host"
 )
 
+// ForgeConfig reads placement only. The complete original document belongs to
+// the provider, including its schema, credentials, defaults and validation.
 type ForgeConfig struct {
-	hrcconfig.Sum[hrcconfig.Provider, struct {
-		GitHub *github.ForgeConfig `variant:"github"`
-	}]
+	placement hrcconfig.Provider
+	raw       []byte
 }
 
-func (c ForgeConfig) NewQueue(id, version string) (provider.Queue, error) {
-	switch spec := c.Value().(type) {
-	case *github.ForgeConfig:
-		return spec.NewQueue(id, version)
-	default:
-		return nil, provider.ErrInvalidConfig
+func (c *ForgeConfig) UnmarshalJSON(data []byte) error {
+	if trimmed := bytes.TrimSpace(data); len(trimmed) == 0 || trimmed[0] != '{' {
+		return fmt.Errorf("forge configuration must be an object")
 	}
+	var placement hrcconfig.Provider
+	if err := json.Unmarshal(data, &placement, json.RejectUnknownMembers(false)); err != nil {
+		return err
+	}
+	c.placement = placement
+	c.raw = bytes.Clone(data)
+	return nil
+}
+
+func (c ForgeConfig) MarshalJSON() ([]byte, error) { return bytes.Clone(c.raw), nil }
+func (c *ForgeConfig) Base() *hrcconfig.Provider   { return &c.placement }
+
+func (c *ForgeConfig) Validate() error {
+	if c.placement.Type == "" {
+		c.placement.Type = "github"
+	}
+	if c.placement.Type != "github" {
+		return fmt.Errorf("%w: unknown configuration type %q", provider.ErrInvalidConfig, c.placement.Type)
+	}
+	return nil
+}
+
+func (c ForgeConfig) NewQueue(id, version string, pool *runtime.Pool, onError func(error)) (provider.Queue, error) {
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	return &provider.ProcessQueue{
+		Pool: pool, OnError: onError,
+		Command: []string{"hrcp-github-queue"}, Config: bytes.Clone(c.raw),
+		Instance: id, Version: version, Name: string(c.placement.ID),
+	}, nil
 }
 
 type SlotConfig struct {
@@ -68,7 +98,7 @@ type SpaceConfig struct {
 	}]
 }
 
-func (c SpaceConfig) NewSpace(dirs Directories, pool SlotConfig, capacity int, providers map[string][]byte) (space.Space, error) {
+func (c SpaceConfig) NewSpace(dirs Directories, pool SlotConfig, capacity int, providers map[string][]byte, processes *runtime.Pool) (space.Space, error) {
 	switch spec := c.Value().(type) {
 	case *spacehost.Config:
 		root := spec.Dir
@@ -90,23 +120,29 @@ func (c SpaceConfig) NewSpace(dirs Directories, pool SlotConfig, capacity int, p
 			SlotConfig: slotConfig,
 			Providers:  providers,
 		}
-		return spacehost.New(string(spec.ID), root, []string{"hrcm"}, config)
+		return spacehost.New(string(spec.ID), root, []string{"hrcm"}, config, processes)
 	default:
 		return nil, space.ErrInvalidConfig
 	}
 }
 
-// executionConfigs supplies opaque provider settings to the execution process.
+// Built-in provider processes are an implementation detail, not user configuration.
 func executionConfigs(dirs Directories) (map[string][]byte, error) {
-	runtimeDir, err := filepath.Abs(dirs.Runtime)
+	runtime, err := filepath.Abs(dirs.Runtime)
 	if err != nil {
 		return nil, err
 	}
-	logRoot, err := filepath.Abs(dirs.Logs)
+	logs, err := filepath.Abs(dirs.Logs)
 	if err != nil {
 		return nil, err
 	}
-	data, err := json.Marshal(github.WorkerConfig{Dir: runtimeDir, LogRoot: logRoot})
+	settings, err := json.Marshal(struct{ Dir, LogRoot string }{runtime, logs})
+	if err != nil {
+		return nil, err
+	}
+	data, err := json.Marshal(provider.ProcessConfig{
+		Command: []string{"hrcp-github-worker"}, Config: settings,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -158,17 +194,12 @@ func runDaemon(cfg *Config) (err error) {
 	if err != nil {
 		return err
 	}
-	visor, err := NewSpaceVisor(cfg, demands, providers)
-	if err != nil {
-		return fmt.Errorf("create spacevisor: %w", err)
-	}
-	defer func() { err = errors.Join(err, visor.Close()) }()
-
-	controller, err := NewController(cfg, demands)
+	pool := &runtime.Pool{}
+	defer func() { err = errors.Join(err, pool.Close()) }()
+	controller, err := NewController(cfg, demands, providers, pool)
 	if err != nil {
 		return fmt.Errorf("create controller: %w", err)
 	}
-	defer func() { err = errors.Join(err, controller.Close()) }()
 
 	// Service managers stop with SIGTERM; Windows delivers console close and
 	// shutdown events as SIGTERM as well.
@@ -177,29 +208,5 @@ func runDaemon(cfg *Config) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	jobs := controller.Serve(ctx)
-
-dispatch:
-	for {
-		select {
-		case job, ok := <-jobs:
-			if !ok {
-				break dispatch
-			}
-			visor.Submit(ctx, job)
-		case <-visor.Failed():
-			break dispatch
-		case <-ctx.Done():
-			break dispatch
-		}
-	}
-
-	// Stop acquisition, request graceful shutdown for every current task,
-	// and wait for execution and Handle cleanup before closing the spaces.
-	cancel()
-	for _, job := range controller.Jobs() {
-		job.Shutdown()
-	}
-
-	return nil
+	return controller.Run(ctx)
 }

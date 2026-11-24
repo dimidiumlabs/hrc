@@ -21,6 +21,7 @@ import (
 const processChildArg = "hrc-process-child"
 
 func processTestChild() {
+
 	runDescendant()
 	if len(os.Args) >= 3 && os.Args[1] == processChildArg {
 		os.Exit(testChild(os.Args[2], os.Args[3:]))
@@ -31,6 +32,10 @@ func processTestChild() {
 // go-ahead on its first inherited file, so that it does nothing before joining
 // its tree, and can report back on the second.
 func testChild(mode string, names []string) int {
+	if mode == "environment" {
+		fmt.Fprintf(os.Stdout, "%s|%s", os.Getenv("HRC_PROCESS_INHERITED"), os.Getenv("HRC_PROCESS_EXPLICIT"))
+		return 0
+	}
 	files := [2]*os.File{os.Stdin, os.Stdout}
 	if len(names) == 2 {
 		for i, name := range names {
@@ -239,6 +244,37 @@ func (d *descendant) Check(alive bool) {
 	}
 }
 
+func TestProcessEnvironment(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HRC_PROCESS_INHERITED", "parent")
+	t.Setenv("HRC_PROCESS_EXPLICIT", "parent")
+	for _, tt := range []struct {
+		name string
+		env  []string
+		want string
+	}{
+		{"inherit", nil, "parent|parent"},
+		{"empty", []string{}, "|"},
+		{"explicit", []string{"HRC_PROCESS_EXPLICIT=child"}, "|child"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var output bytes.Buffer
+			p, err := StartChild(t.Context(), Command{Path: self, Args: []string{processChildArg, "environment"}, Env: tt.env, Stdout: &output, Stderr: os.Stderr})
+			if err != nil {
+				t.Fatal(err)
+			}
+			code, err := p.Wait()
+			p.Close(0)
+			if err != nil || code != 0 || output.String() != tt.want {
+				t.Fatalf("environment = %q, exit=%d error=%v; want %q", output.String(), code, err, tt.want)
+			}
+		})
+	}
+}
+
 func TestFiles(t *testing.T) {
 	p, start, report, output := startChild(t, "report")
 	if _, err := start.Write([]byte{1}); err != nil {
@@ -254,7 +290,7 @@ func TestFiles(t *testing.T) {
 }
 
 // Descendants outlive an individual process, even after Kill or Close. Only
-// closing their pgroup terminates them, whether or not they changed session.
+// closing their Group terminates them, whether or not they changed session.
 func TestDescendants(t *testing.T) {
 	for _, tt := range []struct {
 		name     string

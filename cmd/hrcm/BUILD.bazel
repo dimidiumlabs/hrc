@@ -17,7 +17,7 @@ go_library(
     deps = [
         "//internal/config",
         "//internal/provider",
-        "//internal/provider-github",
+        "//internal/runtime",
         "//internal/slot",
         "//internal/slot-pgroup",
         "//internal/space",

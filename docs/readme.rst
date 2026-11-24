@@ -2,10 +2,15 @@ Hosted Runner Controller
 ========================
 
 ``hrc`` takes care of running self-hosted GitHub Actions runners on your own
-Linux, macOS, and Windows servers. Install one controller per host and describe
+Linux, macOS, and Windows servers. Install one daemon per host and describe
 its GitHub connections and execution settings, instead of scripting runner
 registration, configuring individual instances, and cleaning up after jobs.
 Choose fresh workspaces or keep files and build processes warm between jobs.
+
+The root **daemon**, ``hrcd``, coordinates acquisition and fans jobs out to
+**monitors**, ``hrcm``, with one monitor per space. Each monitor schedules jobs
+in its slots and owns their workers. Provider processes handle forge-specific
+acquisition and execution.
 
 - **Three operating systems.** Linux, macOS, and Windows are first-class
   platforms, with the same configuration and runner lifecycle model.
@@ -19,7 +24,7 @@ Choose fresh workspaces or keep files and build processes warm between jobs.
   hrc calculates how many runners fit. These settings control concurrency,
   not the resources an individual job can consume.
 - **Independent hosts.** No hrc cluster, shared database, or host-to-host
-  connections. Each controller connects outbound to GitHub; receiving jobs
+  connections. Providers connect outbound to GitHub; receiving jobs
   needs no inbound ports or webhook receiver. Hosts need not share a network
   or location.
 - **Ansible-ready.** The bundled collection installs, configures, starts,
@@ -108,7 +113,7 @@ still need automation to prepare, register, start, and clean up each instance,
 including obtaining tokens through a GitHub App if that is how you authenticate.
 
 hrc provides that operational layer. Its Ansible collection handles deployment
-and service setup; the controller uses your configured credentials to manage
+and service setup; the GitHub provider uses your configured credentials to manage
 runner registration, capacity, slots, and cleanup as jobs arrive. Execution uses
 a bundled Worker built from GitHub's runner source, not a new workflow engine.
 
@@ -116,7 +121,7 @@ GitHub's `Actions Runner Controller (ARC)
 <https://github.com/actions/actions-runner-controller>`__ manages runners through
 Kubernetes on Linux. hrc takes a host-based approach with Linux, macOS, and
 Windows as equal targets. Each host is autonomous: deploying more hosts does
-not require building a cluster of hrc controllers.
+not require building a cluster of hrc daemons.
 
 Runners and slots
 -----------------
@@ -132,13 +137,13 @@ its workspace and child processes:
   space. Large incremental builds can reuse their build output and
   a running build server instead of starting cold each time.
 
-Set ``ephemeral`` per slot pool to use both policies on one controller. Installed
+Set ``ephemeral`` per slot pool to use both policies on one daemon. Installed
 tools and host-level caches outside slot directories remain available with
 either policy. Resource accounting limits busy slots; it is not a hard CPU or
 memory limit on job processes, and idle reusable slots can retain processes.
 Without a quota, hrc does not limit concurrency through resource accounting.
 
-Reusable slots live within a controller run, not across a normal restart.
+Reusable slots live within a daemon run, not across a normal restart.
 Stopping or restarting hrc cancels active jobs and removes all slots, including
 idle reusable ones. See `workspaces and cleanup
 <./manual/operation.rst#workspaces-and-cleanup>`__ for cleanup guarantees and crash behavior.
@@ -168,11 +173,14 @@ through an independent trusted source before trusting it.
 License
 -------
 
-Shared core and tooling are licensed under
-`BSD-3-Clause <../LICENSES/BSD-3-Clause.txt>`__. The GitHub provider
-(``internal/provider-github/**``), including its runner integration, tests, build
-files and patches, is licensed under `MIT <../LICENSES/MIT.txt>`__.
-Documentation is licensed under `CC-BY-4.0 <../LICENSES/CC-BY-4.0.txt>`__.
+The shared hrc core and tooling are licensed under
+`BSD-3-Clause <../LICENSES/BSD-3-Clause.txt>`__.
 
-The bundled upstream GitHub runner is also MIT licensed; its license and .NET
-dependency notices are included in the runner payload.
+For convenience, providers are licensed under the license of the main runner:
+
+- The GitHub provider in ``cmd/hrcp-github/`` is licensed under
+  `MIT <../LICENSES/MIT.txt>`__. This covers the queue, Worker adapter,
+  and upstream runner patches.
+
+Documentation is licensed under `CC-BY-4.0 <../LICENSES/CC-BY-4.0.txt>`__.
+Bundled third-party software retains its own licenses.

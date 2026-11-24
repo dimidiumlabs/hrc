@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
 // SPDX-License-Identifier: BSD-3-Clause
 
-// Messages describe one scheduler generation. Provider payloads remain opaque.
+// Messages describe one monitor generation. Provider payloads remain opaque.
 package space
 
 import (

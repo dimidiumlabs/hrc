@@ -15,7 +15,7 @@ service(
         "//:docs_sources",
         "//:licenses",
         "//cmd/hrcm",
-        "//internal/provider-github/worker:runner",
+        "//cmd/hrcp-github",
     ],
     os = OS,
     arch = ARCH,

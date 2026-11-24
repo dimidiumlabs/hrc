@@ -13,16 +13,27 @@ import (
 
 	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
+	"dimidiumlabs.io/hrc/internal/runtime"
 )
 
-// Controller owns acquisition from forges; it knows neither spaces nor execution.
+// Controller implements the daemon's fanout and owns active jobs, routing
+// acquisition, execution, events and completion between queues and monitors.
+// Process ownership stays in runtime.Pool.
 type Controller struct {
-	forges []managedForge
-	done   chan struct{}
-	err    error
-	mu     sync.Mutex
-	active map[*acquiredJob]struct{}
-	tasks  sync.WaitGroup
+	spaces    map[string]*managedSpace
+	runTasks  sync.WaitGroup
+	closeOnce sync.Once
+	closeErr  error
+	closed    bool
+	failure   error
+	failed    chan struct{}
+	failOnce  sync.Once
+	forges    []managedForge
+	done      chan struct{}
+	err       error
+	mu        sync.Mutex
+	active    map[*acquiredJob]struct{}
+	tasks     sync.WaitGroup
 }
 
 type managedForge struct {
@@ -66,8 +77,30 @@ func (c *Controller) Jobs() []*acquiredJob {
 	return jobs
 }
 
-func NewController(cfg *Config, demands Demands) (*Controller, error) {
-	c := &Controller{}
+func NewController(cfg *Config, demands Demands, providers map[string][]byte, pool *runtime.Pool) (_ *Controller, err error) {
+	c := &Controller{spaces: make(map[string]*managedSpace), failed: make(chan struct{})}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, c.Close())
+		}
+	}()
+	roots := make(map[string]string)
+	for _, spec := range cfg.Spaces {
+		slots := cfg.poolForSpace(spec.Base().ID)
+		if slots == nil {
+			continue
+		}
+		environment, err := spec.NewSpace(cfg.Directories, *slots, demands.Capacity(string(spec.Base().ID)), providers, pool)
+		if err != nil {
+			return nil, err
+		}
+		id, root := string(spec.Base().ID), environment.Cwd()
+		if other, exists := roots[root]; exists {
+			return nil, errors.Join(fmt.Errorf("spaces %q and %q share a directory", other, id), environment.Destroy())
+		}
+		roots[root] = id
+		c.spaces[id] = &managedSpace{environment: environment, demand: demands[id]}
+	}
 	placements := make(map[hrcconfig.ID]hrcconfig.ID, len(cfg.Slots))
 	for _, pool := range cfg.Slots {
 		placements[pool.Base().ID] = pool.Base().Space
@@ -82,7 +115,7 @@ func NewController(cfg *Config, demands Demands) (*Controller, error) {
 		if demand == nil {
 			return nil, fmt.Errorf("forge %q: no demand for space %q", forge.ID, spaceID)
 		}
-		queue, err := variant.NewQueue(string(cfg.InstanceID), hrcconfig.Version)
+		queue, err := variant.NewQueue(string(cfg.InstanceID), hrcconfig.Version, pool, c.recordFailure)
 		if err != nil {
 			return nil, fmt.Errorf("forge %q: %w", forge.ID, err)
 		}
@@ -177,7 +210,53 @@ func (c *Controller) Serve(ctx context.Context) <-chan *acquiredJob {
 	return jobs
 }
 
-func (c *Controller) Close() error { <-c.done; c.tasks.Wait(); return c.err }
+// Run owns dispatch and daemon shutdown. All accepted handles finish cleanup
+// before spaces or their processes can be retired.
+func (c *Controller) Run(ctx context.Context) error {
+	acquisition, cancel := context.WithCancel(ctx)
+	defer cancel()
+	jobs := c.Serve(acquisition)
+dispatch:
+	for {
+		select {
+		case job, ok := <-jobs:
+			if !ok {
+				break dispatch
+			}
+			c.Submit(job)
+		case <-c.Failed():
+			break dispatch
+		case <-ctx.Done():
+			break dispatch
+		}
+	}
+	cancel()
+	for _, job := range c.Jobs() {
+		job.Shutdown()
+	}
+	return c.Close()
+}
+
+func (c *Controller) Close() error {
+	c.closeOnce.Do(func() {
+		if c.done != nil {
+			<-c.done
+			c.tasks.Wait()
+		}
+		c.mu.Lock()
+		c.closed = true
+		c.mu.Unlock()
+		c.runTasks.Wait()
+		for name, host := range c.spaces {
+			if err := host.Close(); err != nil {
+				c.closeErr = errors.Join(c.closeErr, fmt.Errorf("close space %q: %w", name, err))
+			}
+		}
+	})
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return errors.Join(c.err, c.failure, c.closeErr)
+}
 
 func finishUnstarted(ctx context.Context, handle provider.Handle, result provider.Result) error {
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), hrcconfig.JobCleanupTimeout)

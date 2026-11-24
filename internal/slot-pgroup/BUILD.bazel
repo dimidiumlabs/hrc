@@ -17,8 +17,6 @@ go_library(
     deps = [
         "//internal/config",
         "//internal/provider",
-        "//internal/provider-github",
-        "//internal/provider-github/worker",
         "//internal/runtime",
         "//internal/slot",
     ],
@@ -31,8 +29,6 @@ go_test(
     embed = [":slot-pgroup"],
     deps = [
         "//internal/provider",
-        "//internal/provider-github/worker",
-        "//internal/runtime",
         "//internal/slot",
     ],
 )

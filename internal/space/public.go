@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
 // SPDX-License-Identifier: BSD-3-Clause
 
-// Package space describes an environment and access to its scheduler.
+// Package space describes an environment and access to its monitor.
 package space
 
 import (
@@ -11,7 +11,7 @@ import (
 	"dimidiumlabs.io/hrc/internal/provider"
 )
 
-// ErrUnavailable is a terminal loss of this scheduler generation. Its Runs
+// ErrUnavailable is a terminal loss of this monitor generation. Its Runs
 // must not be retried automatically.
 var (
 	ErrUnavailable   = errors.New("space unavailable")
@@ -47,7 +47,7 @@ type State struct {
 	Running, Queued uint64
 }
 
-// Space owns the environment and scheduler process. Run ensures readiness
+// Space owns the environment and monitor process. Run ensures readiness
 // and submits a provider Job. The returned Run can still be waiting for a slot.
 // Destroy stops all execution and returns the space to Idle on success, or
 // leaves it Broken on error. Cleanup can be retried from Broken, and an Idle
@@ -56,7 +56,7 @@ type Space interface {
 	Type() string
 	Name() string
 
-	// Cwd is the space's local directory on the controller host.
+	// Cwd is the space's local directory on the daemon host.
 	Cwd() string
 	Status() Status
 	State(context.Context) (State, error)

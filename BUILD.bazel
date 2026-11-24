@@ -18,11 +18,9 @@ check_sources(
         "//cmd",
         "//cmd/hrcd",
         "//cmd/hrcm",
+        "//cmd/hrcp-github",
         "//internal/config",
         "//internal/provider",
-        "//internal/provider-github",
-        "//internal/provider-github/listener",
-        "//internal/provider-github/worker",
         "//internal/runtime",
         "//internal/slot",
         "//internal/slot-pgroup",
@@ -120,6 +118,8 @@ filegroup(
 )
 
 # gazelle:prefix dimidiumlabs.io/hrc
+# gazelle:resolve go dimidiumlabs.io/hrc/internal/provider //internal/provider
+# gazelle:resolve go dimidiumlabs.io/hrc/internal/space //internal/space
 # gazelle:exclude dist
 
 gazelle(name = "gazelle")
@@ -130,12 +130,9 @@ test_suite(
         "//ansible:collection_test",
         "//cmd/hrcd:hrcd_test",
         "//cmd/hrcm:hrcm_test",
+        "//cmd/hrcp-github:test",
         "//internal/config:config_test",
-        "//internal/provider-github:provider-github_test",
-        "//internal/provider-github/listener:listener_test",
-        "//internal/provider-github/worker:runtime_config_test",
-        "//internal/provider-github/worker:worker_test",
-        "//internal/provider-github/worker:worker_unit_test",
+        "//internal/provider:provider_test",
         "//internal/runtime:runtime_test",
         "//internal/slot-pgroup:slot-pgroup_test",
         "//internal/space:space_test",
@@ -150,7 +147,7 @@ test_suite(
 
 alias(
     name = "runner",
-    actual = "//internal/provider-github/worker:runner",
+    actual = "//cmd/hrcp-github/worker:runner",
     tags = ["manual"],
 )
 

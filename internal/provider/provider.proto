@@ -1,0 +1,150 @@
+// SPDX-FileCopyrightText: 2026 Nikolay Govorov
+// SPDX-License-Identifier: BSD-3-Clause
+syntax = "proto3";
+package hrc.provider;
+option go_package = "dimidiumlabs.io/hrc/internal/provider";
+
+message Failure {
+  string message = 1;
+  string kind = 2;
+}
+
+message Outcome {
+  uint32 result = 1;
+  bytes data = 2;
+  Failure error = 3;
+}
+
+// Services are hosted by the parent. Children open one stream, announce Ready,
+// then receive commands and send events. A lost stream is never reconnected.
+service QueueService {
+  // One session owns acquisition and all delivered handles. No reconnect/replay.
+  // A Job offer transfers ownership only after Accepted. Before that the queue
+  // cleans it up. StopAcquisition leaves delivered handles alive.
+  rpc Session(stream QueueOutput) returns (stream QueueInput);
+}
+
+message Description {
+  string id = 1;
+  string provider = 2;
+  bytes payload = 3;
+}
+
+message JobOffer {
+  uint64 handle = 1;
+  Description job = 2;
+}
+
+message HandleEvent {
+  uint64 handle = 1;
+  uint32 type = 2;
+  int64 grace_ns = 3;
+  Failure error = 4;
+}
+
+message OperationReply {
+  uint64 request = 1;
+  Failure error = 2;
+}
+
+message QueueInitialization {
+  Failure error = 1;
+}
+
+message QueueOutput {
+  oneof event {
+    uint64 reserve = 1;
+    uint64 release = 2;
+    JobOffer job = 3;
+    HandleEvent notification = 4;
+    OperationReply reply = 5;
+    bool acquisition_stopped = 6;
+    bool ready = 7;
+    // Reply to Start, before acquisition begins. Config errors are terminal.
+    QueueInitialization initialized = 8;
+  }
+}
+
+message QueueStart {
+  bytes config = 1;
+  string instance = 2;
+  string version = 3;
+  string name = 4;
+}
+
+message DemandState {
+  uint64 available = 1;
+}
+
+message ReservationReply {
+  uint64 id = 1;
+  Failure error = 2;
+}
+
+message HandleOperation {
+  uint64 request = 1;
+  uint64 handle = 2;
+  Outcome outcome = 3;
+  bool close = 4;
+  // Absolute UTC deadline, in Unix nanoseconds; zero means no deadline.
+  int64 deadline_unix_ns = 5;
+}
+
+message QueueInput {
+  oneof command {
+    QueueStart start = 1;
+    DemandState state = 2;
+    ReservationReply reserved = 3;
+    uint64 accepted = 4;
+    HandleOperation operation = 5;
+    bool stop_acquisition = 6;
+    // Cancel only the operation with this request ID, not the queue session.
+    uint64 cancel_operation = 7;
+  }
+}
+
+service WorkerService {
+  // One process channel: control requests are allowed before and during the
+  // single execution. Start is followed only by Stop or control requests.
+  rpc Execute(stream TaskEvent) returns (stream TaskCommand);
+}
+
+enum WorkerState { READY = 0; STOPPING = 1; }
+
+message WorkerReply {
+  uint64 id = 1;
+  WorkerState state = 2;
+  // Shutdown was accepted before Start; no Outcome will follow.
+  bool exited = 3;
+}
+
+message TaskEvent {
+  Outcome outcome = 1;
+  bool ready = 2;
+  WorkerReply reply = 3;
+}
+
+message TaskStart {
+  bytes config = 1;
+  bytes payload = 2;
+}
+
+message TaskStop {
+  uint32 reason = 1;
+}
+
+message WorkerRequest {
+  uint64 id = 1;
+  oneof method {
+    bool status = 2;
+    TaskStop shutdown = 3;
+  }
+}
+
+message TaskCommand {
+  oneof command {
+    TaskStart start = 1;
+    TaskStop stop = 2;
+    WorkerRequest control = 3;
+  }
+}

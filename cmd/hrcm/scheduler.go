@@ -11,8 +11,9 @@ import (
 	"os"
 	"sync"
 
-	"dimidiumlabs.io/hrc/internal/config"
+	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
+	"dimidiumlabs.io/hrc/internal/runtime"
 	"dimidiumlabs.io/hrc/internal/slot"
 	"dimidiumlabs.io/hrc/internal/space"
 )
@@ -24,6 +25,7 @@ type allocation struct {
 }
 
 type scheduler struct {
+	pool              *runtime.Pool
 	mu                sync.Mutex
 	limit, used, next int
 	waiting           int
@@ -150,6 +152,9 @@ func (s *scheduler) close() error {
 		for a := range s.all {
 			s.closeErr = errors.Join(s.closeErr, a.Destroy(context.Background()))
 		}
+		if s.pool != nil {
+			s.closeErr = errors.Join(s.closeErr, s.pool.Close())
+		}
 		s.all, s.free = nil, nil
 		s.notify()
 	}
@@ -268,7 +273,7 @@ func (s *scheduler) execute(e *execution, job provider.Job) (result provider.Res
 			e.mu.Lock()
 			kind := e.requested
 			e.mu.Unlock()
-			send, stop := context.WithTimeout(context.Background(), config.ControlTimeout)
+			send, stop := context.WithTimeout(context.Background(), hrcconfig.ControlTimeout)
 			switch kind {
 			case provider.StopCancel:
 				err = local.Stop(send, provider.StopCancel)

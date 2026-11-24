@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-// A scheduler serves one connection and stops when its transport is lost.
+// A monitor serves one connection and stops when its transport is lost.
 type watchedConn struct {
 	net.Conn
 	once sync.Once

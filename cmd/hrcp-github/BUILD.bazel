@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: MIT
+
+load("@rules_pkg//pkg:mappings.bzl", "pkg_filegroup")
+load("//tools/check:sources.bzl", "check_sources")
+
+check_sources(
+    deps = [
+        "//cmd/hrcp-github/queue",
+        "//cmd/hrcp-github/queue/internal/job",
+        "//cmd/hrcp-github/queue/internal/listener",
+        "//cmd/hrcp-github/worker",
+    ],
+)
+
+# The release consumes the provider as one unit: queue, worker and resources.
+pkg_filegroup(
+    name = "hrcp-github",
+    srcs = [
+        "//cmd/hrcp-github/queue:queue_files",
+        "//cmd/hrcp-github/worker:runner",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+test_suite(
+    name = "test",
+    tests = [
+        "//cmd/hrcp-github/queue:queue_test",
+        "//cmd/hrcp-github/queue/internal/listener:listener_test",
+        "//cmd/hrcp-github/worker:runtime_config_test",
+        "//cmd/hrcp-github/worker:worker_test",
+    ],
+)

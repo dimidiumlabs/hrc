@@ -1,10 +1,33 @@
 # SPDX-FileCopyrightText: 2026 Nikolay Govorov
 # SPDX-License-Identifier: BSD-3-Clause
 
-load("@rules_go//go:def.bzl", "go_library")
+load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("@rules_go//proto:def.bzl", "go_proto_library")
 load("//tools/check:sources.bzl", "check_sources")
 
 check_sources()
+
+exports_files(
+    ["provider.proto"],
+    visibility = ["//cmd:__subpackages__"],
+)
+
+# gazelle:proto disable_global
+proto_library(
+    name = "provider_proto",
+    srcs = ["provider.proto"],
+)
+
+go_proto_library(
+    name = "provider_go_grpc",
+    compilers = [
+        "@rules_go//proto:go_proto",
+        "@rules_go//proto:go_grpc_v2",
+    ],
+    importpath = "dimidiumlabs.io/hrc/internal/provider",
+    proto = ":provider_proto",
+)
 
 go_library(
     name = "provider",
@@ -12,6 +35,28 @@ go_library(
         ["*.go"],
         exclude = ["*_test.go"],
     ),
+    embed = [":provider_go_grpc"],  # keep
     importpath = "dimidiumlabs.io/hrc/internal/provider",
     visibility = ["//visibility:public"],
+    deps = [
+        "//internal/config",
+        "//internal/runtime",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+go_test(
+    name = "provider_test",
+    srcs = ["rpc_test.go"],
+    deps = [
+        ":provider",
+        "//internal/runtime",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_golang_google_grpc//status",
+    ],
 )

@@ -89,7 +89,7 @@ macOS 13.5 or later needs no additional native Worker dependencies. Install Git
 and any build tools needed by your workflows, such as Xcode or Command Line
 Tools, separately. Ensure the service account can access them.
 
-Keep controller state and job directory paths free of spaces. For Ansible,
+Keep daemon state and job directory paths free of spaces. For Ansible,
 install Python on the host and arrange SSH and administrative access.
 
 Windows

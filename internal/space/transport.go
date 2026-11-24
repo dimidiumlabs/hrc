@@ -8,7 +8,7 @@ import (
 	"net"
 	"sync"
 
-	"dimidiumlabs.io/hrc/internal/config"
+	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -20,7 +20,7 @@ func dial(conn net.Conn) (*grpc.ClientConn, error) {
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDisableRetry(),
 		// This transport cannot reconnect. The default 30-minute idle
-		// timeout would otherwise retire a healthy scheduler generation.
+		// timeout would otherwise retire a healthy monitor generation.
 		grpc.WithIdleTimeout(0),
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			var accepted net.Conn
@@ -30,11 +30,11 @@ func dial(conn net.Conn) (*grpc.ClientConn, error) {
 			}
 			return accepted, nil
 		}),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(config.GRPCMaxMessageSize), grpc.MaxCallSendMsgSize(config.GRPCMaxMessageSize)),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(hrcconfig.GRPCMaxMessageSize), grpc.MaxCallSendMsgSize(hrcconfig.GRPCMaxMessageSize)),
 	)
 }
 
-// Closing the transport ends this scheduler generation, including idle periods.
+// Closing the transport ends this monitor generation, including idle periods.
 type watchedConn struct {
 	net.Conn
 	once sync.Once

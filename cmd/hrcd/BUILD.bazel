@@ -22,7 +22,6 @@ go_library(
     deps = [
         "//internal/config",
         "//internal/provider",
-        "//internal/provider-github",
         "//internal/runtime",
         "//internal/slot-pgroup",
         "//internal/space",
@@ -45,11 +44,11 @@ go_test(
     name = "hrcd_test",
     size = "small",
     srcs = glob(["*_test.go"]),  # keep
+    data = ["pkg/hrc.json"],
     embed = [":hrcd_lib"],
     deps = [
         "//internal/config",
         "//internal/provider",
-        "//internal/slot",
         "//internal/space",
     ],
 )

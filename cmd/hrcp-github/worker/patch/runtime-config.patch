@@ -1,0 +1,264 @@
+# SPDX-FileCopyrightText: 2019 GitHub
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: MIT
+
+diff --git a/src/Runner.Common/ConfigurationStore.cs b/src/Runner.Common/ConfigurationStore.cs
+index 21276e2..beca3d6 100644
+--- a/src/Runner.Common/ConfigurationStore.cs
++++ b/src/Runner.Common/ConfigurationStore.cs
+@@ -194,6 +194,9 @@ namespace GitHub.Runner.Common
+         private RunnerSettings _settings;
+         private RunnerSettings _migratedSettings;
+
++        public ConfigurationStore() { }
++        public ConfigurationStore(RunnerSettings settings) { _settings = settings; }
++
+         public override void Initialize(IHostContext hostContext)
+         {
+             base.Initialize(hostContext);
+diff --git a/src/Runner.Common/Constants.cs b/src/Runner.Common/Constants.cs
+index 4acf494..dce6689 100644
+--- a/src/Runner.Common/Constants.cs
++++ b/src/Runner.Common/Constants.cs
+@@ -13,6 +13,7 @@ namespace GitHub.Runner.Common
+         Tools,
+         Update,
+         Work,
++        Scripts,
+     }
+
+     public enum WellKnownConfigFile
+diff --git a/src/Runner.Common/HostContext.cs b/src/Runner.Common/HostContext.cs
+index ffb0868..6d8a0a0 100644
+--- a/src/Runner.Common/HostContext.cs
++++ b/src/Runner.Common/HostContext.cs
+@@ -58,6 +58,7 @@ namespace GitHub.Runner.Common
+         private static int _defaultLogRetentionDays = 30;
+         private static int[] _vssHttpMethodEventIds = new int[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 24 };
+         private static int[] _vssHttpCredentialEventIds = new int[] { 11, 13, 14, 15, 16, 17, 18, 20, 21, 22, 27, 29 };
++        private readonly IReadOnlyDictionary<WellKnownDirectory, string> _directories;
+         private readonly ConcurrentDictionary<Type, object> _serviceInstances = new();
+         private readonly ConcurrentDictionary<Type, Type> _serviceTypes = new();
+         private readonly ISecretMasker _secretMasker = new SecretMasker();
+@@ -91,11 +92,12 @@ namespace GitHub.Runner.Common
+         public List<ProductInfoHeaderValue> UserAgents => _userAgents;
+         public RunnerWebProxy WebProxy => _webProxy;
+         public bool AllowAuthMigration => _allowAuthMigration.IsSet;
+-        public HostContext(string hostType, string logFile = null)
++        public HostContext(string hostType, string logFile = null, RunnerSettings settings = null, IReadOnlyDictionary<WellKnownDirectory, string> directories = null)
+         {
+             // Validate args.
+             ArgUtil.NotNullOrEmpty(hostType, nameof(hostType));
+             _hostType = hostType;
++            _directories = directories == null ? new Dictionary<WellKnownDirectory, string>() : new Dictionary<WellKnownDirectory, string>(directories);
+
+             _loadContext = AssemblyLoadContext.GetLoadContext(typeof(HostContext).GetTypeInfo().Assembly);
+             _loadContext.Unloading += LoadContext_Unloading;
+@@ -137,7 +139,7 @@ namespace GitHub.Runner.Common
+                 }
+
+                 // this should give us _diag folder under runner root directory
+-                string diagLogDirectory = Path.Combine(new DirectoryInfo(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location)).Parent.FullName, Constants.Path.DiagDirectory);
++                string diagLogDirectory = _directories.TryGetValue(WellKnownDirectory.Diag, out var diag) ? diag : Path.Combine(Directory.GetCurrentDirectory(), Constants.Path.DiagDirectory);
+                 _traceManager = new TraceManager(new HostTraceListener(diagLogDirectory, hostType, logPageSize, logRetentionDays), stdoutTraceListener, this.SecretMasker);
+             }
+             else
+@@ -219,6 +221,12 @@ namespace GitHub.Runner.Common
+                 _trace.Warning($"Runner is running under insecure mode: HTTPS server certificate validation has been turned off by GITHUB_ACTIONS_RUNNER_TLS_NO_VERIFY environment variable.");
+             }
+
++            if (settings != null)
++            {
++                var configuration = new ConfigurationStore(settings);
++                configuration.Initialize(this);
++                _serviceInstances[typeof(IConfigurationStore)] = configuration;
++            }
+             LoadDefaultUserAgents();
+         }
+
+@@ -299,7 +307,8 @@ namespace GitHub.Runner.Common
+             }
+
+             var credFile = GetConfigFile(WellKnownConfigFile.Credentials);
+-            if (File.Exists(credFile))
++#pragma warning disable CS0162 // Intentionally disabled upstream credential handling.
++            if (false) // Runner credentials are supplied with the job, never read from disk.
+             {
+                 var credData = IOUtil.LoadObject<CredentialData>(credFile);
+                 if (credData != null &&
+@@ -339,10 +348,11 @@ namespace GitHub.Runner.Common
+                 }
+             }
+
++#pragma warning restore CS0162
+             var runnerFile = GetConfigFile(WellKnownConfigFile.Runner);
+-            if (File.Exists(runnerFile))
++            if (true) // Runtime settings do not require a .runner file.
+             {
+-                var runnerSettings = IOUtil.LoadObject<RunnerSettings>(runnerFile, true);
++                var runnerSettings = GetService<IConfigurationStore>().GetSettings();
+                 _userAgents.Add(new ProductInfoHeaderValue("RunnerId", runnerSettings.AgentId.ToString(CultureInfo.InvariantCulture)));
+                 _userAgents.Add(new ProductInfoHeaderValue("GroupId", runnerSettings.PoolId.ToString(CultureInfo.InvariantCulture)));
+             }
+@@ -371,11 +381,12 @@ namespace GitHub.Runner.Common
+
+         public string GetDirectory(WellKnownDirectory directory)
+         {
++            if (_directories.TryGetValue(directory, out var configured)) return configured;
+             string path;
+             switch (directory)
+             {
+                 case WellKnownDirectory.Bin:
+-                    path = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
++                    path = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+                     break;
+
+                 case WellKnownDirectory.Diag:
+@@ -385,13 +396,15 @@ namespace GitHub.Runner.Common
+                     break;
+
+                 case WellKnownDirectory.Externals:
+-                    path = Path.Combine(
+-                        GetDirectory(WellKnownDirectory.Root),
+-                        Constants.Path.ExternalsDirectory);
++                    path = Path.Combine(GetDirectory(WellKnownDirectory.Root), Constants.Path.ExternalsDirectory);
++                    break;
++
++                case WellKnownDirectory.Scripts:
++                    path = GetDirectory(WellKnownDirectory.Bin);
+                     break;
+
+                 case WellKnownDirectory.Root:
+-                    path = new DirectoryInfo(GetDirectory(WellKnownDirectory.Bin)).Parent.FullName;
++                    path = Directory.GetCurrentDirectory();
+                     break;
+
+                 case WellKnownDirectory.Temp:
+diff --git a/src/Runner.Listener/Program.cs b/src/Runner.Listener/Program.cs
+--- a/src/Runner.Listener/Program.cs
++++ b/src/Runner.Listener/Program.cs
+@@ -16,7 +16,7 @@ namespace GitHub.Runner.Listener
+         public static int Main(string[] args)
+         {
+             // Add environment variables from .env file
+-            LoadAndSetEnv();
++            // LoadAndSetEnv(); // hrc supplies the environment; ignore runner layout files.
+
+             using (HostContext context = new("Runner"))
+             {
+diff --git a/src/Runner.Worker/Container/DockerCommandManager.cs b/src/Runner.Worker/Container/DockerCommandManager.cs
+index 41b914a..9c83ad1 100644
+--- a/src/Runner.Worker/Container/DockerCommandManager.cs
++++ b/src/Runner.Worker/Container/DockerCommandManager.cs
+@@ -47,8 +47,7 @@ namespace GitHub.Runner.Worker.Container
+         {
+             base.Initialize(hostContext);
+             DockerPath = WhichUtil.Which("docker", true, Trace);
+-            string path = Path.Combine(HostContext.GetDirectory(WellKnownDirectory.Root), ".runner");
+-            string json = File.ReadAllText(path, Encoding.UTF8);
++            string json = StringUtil.ConvertToJson(HostContext.GetService<IConfigurationStore>().GetSettings());
+             DockerInstanceLabel = IOUtil.GetSha256Hash(json).Substring(0, 6);
+         }
+
+diff --git a/src/Runner.Worker/ExecutionContext.cs b/src/Runner.Worker/ExecutionContext.cs
+index 0f94108..677b9f8 100644
+--- a/src/Runner.Worker/ExecutionContext.cs
++++ b/src/Runner.Worker/ExecutionContext.cs
+@@ -52,6 +52,7 @@ namespace GitHub.Runner.Worker
+         TaskResult? CommandResult { get; set; }
+         CancellationToken CancellationToken { get; }
+         GlobalContext Global { get; }
++        string GetDirectory(WellKnownDirectory directory);
+
+         Dictionary<string, string> IntraActionState { get; }
+         Dictionary<string, VariableValue> JobOutputs { get; }
+@@ -141,6 +142,8 @@ namespace GitHub.Runner.Worker
+
+     public sealed class ExecutionContext : RunnerService, IExecutionContext
+     {
++        public string GetDirectory(WellKnownDirectory directory) => HostContext.GetDirectory(directory);
++
+         private const int _maxCountPerIssueType = 10;
+         private const int _throttlingDelayReportThreshold = 10 * 1000; // Don't report throttling with less than 10 seconds delay
+         private const int _maxIssueMessageLength = 4096; // Don't send issue with huge message since we can't forward them from actions to check annotation.
+diff --git a/src/Runner.Worker/Expressions/HashFilesFunction.cs b/src/Runner.Worker/Expressions/HashFilesFunction.cs
+index ddd318c..ec14c82 100644
+--- a/src/Runner.Worker/Expressions/HashFilesFunction.cs
++++ b/src/Runner.Worker/Expressions/HashFilesFunction.cs
+@@ -7,6 +7,7 @@ using GitHub.Runner.Sdk;
+ using System.Reflection;
+ using System.Threading;
+ using System.Collections.Generic;
++using GitHub.Runner.Common;
+ using GitHub.Runner.Common.Util;
+
+ namespace GitHub.Runner.Worker.Expressions
+@@ -67,11 +68,9 @@ namespace GitHub.Runner.Worker.Expressions
+             context.Trace.Info($"Search root directory: '{githubWorkspace}'");
+             context.Trace.Info($"Search pattern: '{string.Join(", ", patterns)}'");
+
+-            string binDir = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+-            string runnerRoot = new DirectoryInfo(binDir).Parent.FullName;
+-
+-            string node = Path.Combine(runnerRoot, "externals", NodeUtil.GetInternalNodeVersion(), "bin", $"node{IOUtil.ExeExtension}");
+-            string hashFilesScript = Path.Combine(binDir, "hashFiles");
++            var executionContext = (IExecutionContext)templateContext.State[nameof(IExecutionContext)];
++            string node = Path.Combine(executionContext.GetDirectory(WellKnownDirectory.Externals), NodeUtil.GetInternalNodeVersion(), "bin", $"node{IOUtil.ExeExtension}");
++            string hashFilesScript = Path.Combine(executionContext.GetDirectory(WellKnownDirectory.Scripts), "hashFiles.js");
+             var hashResult = string.Empty;
+             var p = new ProcessInvoker(new HashFilesTrace(context.Trace));
+             p.ErrorDataReceived += ((_, data) =>
+@@ -200,11 +199,9 @@ namespace GitHub.Runner.Worker.Expressions
+             context.Trace.Info($"Search root directory: '{githubWorkspace}'");
+             context.Trace.Info($"Search pattern: '{string.Join(", ", patterns)}'");
+
+-            string binDir = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+-            string runnerRoot = new DirectoryInfo(binDir).Parent.FullName;
+-
+-            string node = Path.Combine(runnerRoot, "externals", NodeUtil.GetInternalNodeVersion(), "bin", $"node{IOUtil.ExeExtension}");
+-            string hashFilesScript = Path.Combine(binDir, "hashFiles");
++            var executionContext = (IExecutionContext)templateContext.State[nameof(IExecutionContext)];
++            string node = Path.Combine(executionContext.GetDirectory(WellKnownDirectory.Externals), NodeUtil.GetInternalNodeVersion(), "bin", $"node{IOUtil.ExeExtension}");
++            string hashFilesScript = Path.Combine(executionContext.GetDirectory(WellKnownDirectory.Scripts), "hashFiles.js");
+             var hashResult = string.Empty;
+             var p = new ProcessInvoker(new NewHashFilesTrace(context.Trace));
+             p.ErrorDataReceived += ((_, data) =>
+diff --git a/src/Runner.Worker/Handlers/ScriptHandler.cs b/src/Runner.Worker/Handlers/ScriptHandler.cs
+index b898f05..d78ec64 100644
+--- a/src/Runner.Worker/Handlers/ScriptHandler.cs
++++ b/src/Runner.Worker/Handlers/ScriptHandler.cs
+@@ -306,7 +306,7 @@ namespace GitHub.Runner.Worker.Handlers
+             {
+                 // launch `node macOSRunInvoker.js shell args` instead of `shell args` to avoid macOS SIP remove `DYLD_INSERT_LIBRARIES` when launch process
+                 string node = Path.Combine(HostContext.GetDirectory(WellKnownDirectory.Externals), NodeUtil.GetInternalNodeVersion(), "bin", $"node{IOUtil.ExeExtension}");
+-                string macOSRunInvoker = Path.Combine(HostContext.GetDirectory(WellKnownDirectory.Bin), "macos-run-invoker.js");
++                string macOSRunInvoker = Path.Combine(HostContext.GetDirectory(WellKnownDirectory.Scripts), "macosRunInvoker.js");
+                 arguments = $"\"{macOSRunInvoker.Replace("\"", "\\\"")}\" \"{fileName.Replace("\"", "\\\"")}\" {arguments}";
+                 fileName = node;
+             }
+diff --git a/src/Runner.Worker/JobExtension.cs b/src/Runner.Worker/JobExtension.cs
+index d3d5fb7..ac0ddc1 100644
+--- a/src/Runner.Worker/JobExtension.cs
++++ b/src/Runner.Worker/JobExtension.cs
+@@ -83,11 +83,9 @@ namespace GitHub.Runner.Worker
+                     context.Output($"Current runner version: '{BuildConstants.RunnerPackage.Version}'");
+
+                     var setting = HostContext.GetService<IConfigurationStore>().GetSettings();
+-                    var credFile = HostContext.GetConfigFile(WellKnownConfigFile.Credentials);
+-                    var credData = File.Exists(credFile) ? IOUtil.LoadObject<CredentialData>(credFile) : null;
+                     // self-hosted runner is the only runner type using OAuth, can be identified via clientId
+-                    if (credData != null &&
+-                        credData.Data.TryGetValue("clientId", out _))
++#pragma warning disable CS0162 // Intentionally disabled upstream credential handling.
++                    if (false) // Do not inspect job-owned credential files.
+                     {
+                         context.Output($"Runner name: '{setting.AgentName}'");
+                         // use system variable for group name since self-hosted runners can be renamed
+@@ -98,6 +96,7 @@ namespace GitHub.Runner.Worker
+                         // print out machine name for self-hosted runner
+                         context.Output($"Machine name: '{Environment.MachineName}'");
+                     }
++#pragma warning restore CS0162
+                     // print runner info for lhr runners, skips standard runners (PoolId = 0)
+                     else if (setting.PoolId > 0 && !string.IsNullOrEmpty(setting.PoolName) && !string.IsNullOrEmpty(setting.AgentName))
+                     {

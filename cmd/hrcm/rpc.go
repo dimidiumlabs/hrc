@@ -9,7 +9,7 @@ import (
 	"net"
 	"sync"
 
-	"dimidiumlabs.io/hrc/internal/config"
+	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
 	"dimidiumlabs.io/hrc/internal/space"
 	"google.golang.org/grpc"
@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Scheduler adapts execution to RPC. Execute owns a Run until it and its cleanup
+// Scheduler adapts the monitor's execution to RPC. Execute owns a Run until it and its cleanup
 // finish, and must stop it when ctx is canceled. Serve waits for all handlers.
 type Scheduler struct {
 	Configure func(*space.Config) error
@@ -32,7 +32,7 @@ type Scheduler struct {
 var _ space.SchedulerServer = (*Scheduler)(nil)
 
 func (s *Scheduler) Serve(ctx context.Context, conn net.Conn) error {
-	server := grpc.NewServer(grpc.MaxRecvMsgSize(config.GRPCMaxMessageSize), grpc.MaxSendMsgSize(config.GRPCMaxMessageSize), grpc.WaitForHandlers(true))
+	server := grpc.NewServer(grpc.MaxRecvMsgSize(hrcconfig.GRPCMaxMessageSize), grpc.MaxSendMsgSize(hrcconfig.GRPCMaxMessageSize), grpc.WaitForHandlers(true))
 	space.RegisterSchedulerServer(server, s)
 	watched := &watchedConn{Conn: conn, done: make(chan struct{})}
 	listener := &singleListener{conn: watched, done: make(chan struct{})}
@@ -59,7 +59,7 @@ func (s *Scheduler) Init(_ context.Context, request *space.InitRequest) (*space.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.attempted {
-		return nil, status.Error(codes.FailedPrecondition, "scheduler already initialized")
+		return nil, status.Error(codes.FailedPrecondition, "monitor already initialized")
 	}
 	s.attempted = true
 	cfg := request.GetConfig()
@@ -77,7 +77,7 @@ func (s *Scheduler) ready() bool { s.mu.RLock(); defer s.mu.RUnlock(); return s.
 
 func (s *Scheduler) Inspect(context.Context, *space.InspectRequest) (*space.Snapshot, error) {
 	if !s.ready() {
-		return nil, status.Error(codes.FailedPrecondition, "scheduler is not initialized")
+		return nil, status.Error(codes.FailedPrecondition, "monitor is not initialized")
 	}
 	state := s.State()
 	return &space.Snapshot{Capacity: state.Capacity, Slots: state.Slots, BusySlots: state.BusySlots, Running: state.Running, Queued: state.Queued}, nil
@@ -85,7 +85,7 @@ func (s *Scheduler) Inspect(context.Context, *space.InspectRequest) (*space.Snap
 
 func (s *Scheduler) Run(stream grpc.BidiStreamingServer[space.RunCommand, space.RunEvent]) error {
 	if !s.ready() {
-		return status.Error(codes.FailedPrecondition, "scheduler is not initialized")
+		return status.Error(codes.FailedPrecondition, "monitor is not initialized")
 	}
 	first, err := stream.Recv()
 	if err != nil {

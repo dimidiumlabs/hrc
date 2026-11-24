@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: 2019 GitHub
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: MIT
+
+diff --git a/src/Runner.Worker/Runner.Worker.csproj b/src/Runner.Worker/Runner.Worker.csproj
+--- a/src/Runner.Worker/Runner.Worker.csproj
++++ b/src/Runner.Worker/Runner.Worker.csproj
+@@ -3,3 +3,5 @@
++  <Import Project="Hrc/Worker.props" />
++
+   <PropertyGroup>
+     <TargetFramework>net8.0</TargetFramework>
+     <OutputType>Exe</OutputType>
+diff --git a/src/Runner.Worker/Program.cs b/src/Runner.Worker/Program.cs
+--- a/src/Runner.Worker/Program.cs
++++ b/src/Runner.Worker/Program.cs
+@@ -11,6 +11,11 @@
+     {
+         public static int Main(string[] args)
+         {
++            if (HrcWorkerHost.Handles(args))
++            {
++                return HrcWorkerHost.RunAsync(args).GetAwaiter().GetResult();
++            }
++
+             using (HostContext context = new("Worker"))
+             {
+                 return MainAsync(context, args).GetAwaiter().GetResult();
+diff --git a/src/Runner.Worker/Worker.cs b/src/Runner.Worker/Worker.cs
+--- a/src/Runner.Worker/Worker.cs
++++ b/src/Runner.Worker/Worker.cs
+@@ -48,5 +48,5 @@
+                 await using (var secretNotifier = HostContext.GetService<IVSockSecretNotifier>())
+-                using (var channel = HostContext.CreateService<IProcessChannel>())
++                using (var channel = HrcWorkerHost.CreateChannel(HostContext))
+                 using (var jobRequestCancellationToken = CancellationTokenSource.CreateLinkedTokenSource(HostContext.RunnerShutdownToken))
+                 using (var channelTokenSource = new CancellationTokenSource())
+                 {

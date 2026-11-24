@@ -63,7 +63,7 @@ func testSpace(t *testing.T) *SpaceHost {
 	// Exercise sibling lookup with the same minimal PATH as a service.
 	t.Setenv("PATH", "")
 	config := &space.Config{Capacity: 2}
-	s, err := New("test-space", filepath.Join(t.TempDir(), "space"), []string{filepath.Base(self), "space-test-peer"}, config)
+	s, err := New("test-space", filepath.Join(t.TempDir(), "space"), []string{filepath.Base(self), "space-test-peer"}, config, &runtime.Pool{})
 	if err != nil {
 		t.Fatal(err)
 	}

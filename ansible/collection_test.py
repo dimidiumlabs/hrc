@@ -239,6 +239,8 @@ class CollectionTest(unittest.TestCase):
             "hrcd",
             "hrcm",
             "hrcs",
+            "hrcp-github-queue",
+            "hrcp-github-worker",
             "hrcw-github",
             "hrc-custom",
         }
@@ -270,7 +272,7 @@ class CollectionTest(unittest.TestCase):
         self.cli("ansible.cli.playbook", *args)
         self.assertEqual(
             {path.name for path in binaries.iterdir()},
-            names - {"hrc", "hrc-worker", "hrcs"},
+            names - {"hrc", "hrc-worker", "hrcs", "hrcw-github"},
         )
         output = self.cli("ansible.cli.playbook", *args)
         self.assertRegex(output, r"\bchanged=0\b")
