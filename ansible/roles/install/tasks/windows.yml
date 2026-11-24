@@ -138,7 +138,7 @@
         src: '{{ _hrc_download.path }}\{{ item }}'
         dest: '{{ _hrc_path.bin }}\{{ item }}'
         remote_src: true
-      loop: [hrcd.exe, hrcs.exe, hrcw-github.exe]
+      loop: [hrcd.exe, hrcm.exe, hrcp-github-queue.exe, hrcp-github-worker.exe]
       notify: hrc install restart
 
     - name: Install runtime

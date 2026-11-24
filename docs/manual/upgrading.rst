@@ -1,18 +1,21 @@
 Upgrading
 =========
 
-Schedule an interruption: upgrades restart the controller, cancel active jobs,
+Schedule an interruption: upgrades restart the daemon, cancel active jobs,
 and remove slots, including idle reusable ones. Keep configuration and secrets;
 do not repeat the first-time configuration examples.
 
 For a new host, follow `Installation <./installation.rst>`__ instead.
 To uninstall hrc, see `Removal <./removal.rst>`__.
 
-The controller executable is now ``hrcd`` and the GitHub Worker is
-``hrcw-github`` (with ``.exe`` on Windows). When upgrading from a release using
+The daemon executable is now ``hrcd`` and the GitHub Worker is
+``hrcp-github-worker`` (with ``.exe`` on Windows). When upgrading from a release using
 ``hrc`` and ``hrc-worker``, copy the new service definition as part of the
-upgrade. The service PATH must include ``hrcd``, ``hrcs`` and ``hrcw-github``. Release archives and service names remain
-``hrc``.
+upgrade. The service PATH must include ``hrcd``, ``hrcm``, ``hrcp-github-queue``,
+and ``hrcp-github-worker``. Release archives and service names remain ``hrc``.
+The former ``hrcw-github`` binary is no longer needed: its C# implementation is
+now the gRPC worker itself. The host-space monitor is now ``hrcm``; remove the
+former ``hrcs`` binary if installed.
 
 Contents
 --------
@@ -106,7 +109,7 @@ then run the commands below from its extracted directory.
 
       sudo rc-service hrc start
 
-For other Linux init systems, stop and start the controller yourself.
+For other Linux init systems, stop and start the daemon yourself.
 Use `Operation <./operation.rst>`__ to check service status and logs afterward.
 
 Group directory settings under ``directories``: ``dirBuilds`` becomes

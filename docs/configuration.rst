@@ -56,7 +56,7 @@ Host settings
      - Meaning
    * - ``instanceId``
      - Required
-     - Controller instance identifier used in GitHub sessions and runner names. Give each instance a distinct ID.
+     - Daemon instance identifier used in GitHub sessions and runner names. Give each instance a distinct ID.
    * - ``spaces``
      - No spaces
      - Named environments and their resource budgets.
@@ -76,11 +76,11 @@ Host settings
      - ``./hrc/log``
      - Parent of per-job diagnostics under ``jobs/``.
 
-Relative paths use the controller's working directory, not the directory
+Relative paths use the daemon's working directory, not the directory
 containing the config file. The supplied services use their state directory as
 working directory. Keep state and job directory paths free of spaces on macOS.
 The Ansible role supplies installation-specific defaults for these paths;
-the table above describes the controller's own defaults.
+the table above describes the daemon's own defaults.
 
 Spaces and forges
 -----------------
@@ -219,7 +219,7 @@ Secrets
    * - ``file``
      - Path to a file readable by the service account.
    * - ``env``
-     - Name of an environment variable in the controller's environment.
+     - Name of an environment variable in the daemon's environment.
    * - ``inline``
      - The secret itself. Anyone who can read the configuration can read it.
 
@@ -272,6 +272,6 @@ There is no separate binary version override.
 Command line
 ------------
 
-- ``hrcd -config PATH`` starts the controller using the specified config file.
+- ``hrcd -config PATH`` starts the daemon using the specified config file.
 - ``hrcd -version`` prints the build version.
 - ``hrcd -help`` shows the available flags.

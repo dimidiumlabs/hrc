@@ -17,16 +17,9 @@ go_library(
     deps = [
         "//internal/config",
         "//internal/provider",
-        "//internal/provider-github",
-        "//internal/provider-github/worker",
         "//internal/runtime",
         "//internal/slot",
-    ] + select({
-        "@rules_go//go/platform:windows": [
-            "@org_golang_x_sys//windows",
-        ],
-        "//conditions:default": [],
-    }),
+    ],
 )
 
 go_test(
@@ -36,8 +29,6 @@ go_test(
     embed = [":slot-pgroup"],
     deps = [
         "//internal/provider",
-        "//internal/provider-github/worker",
-        "//internal/runtime",
         "//internal/slot",
     ],
 )

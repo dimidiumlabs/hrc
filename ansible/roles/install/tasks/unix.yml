@@ -80,7 +80,7 @@
         set -eu
         install -d -m 0755 /usr/local/bin /usr/local/lib
         rm -rf /usr/local/lib/hrc
-        install -m 0755 hrcd hrcs hrcw-github /usr/local/bin/
+        install -m 0755 hrcd hrcm hrcp-github-queue hrcp-github-worker /usr/local/bin/
         cp -R runner /usr/local/lib/hrc
         chown -R root:{{ 'wheel' if _hrc_os == 'darwin' else 'root' }} /usr/local/lib/hrc
         chmod -R u=rwX,go=rX /usr/local/lib/hrc

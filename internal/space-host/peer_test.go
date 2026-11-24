@@ -16,7 +16,7 @@ import (
 )
 
 // schedulerPeer implements only the messages needed by host lifecycle tests.
-// Production scheduler behavior is tested in cmd/hrcs.
+// Production scheduler behavior is tested in cmd/hrcm.
 type schedulerPeer struct {
 	capacity atomic.Uint64
 	running  atomic.Uint64

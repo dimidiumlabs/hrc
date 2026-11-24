@@ -9,6 +9,8 @@ _hrc_path: "{{ _hrc_paths[_hrc_os] }}"
 _hrc_obsolete_binaries:
   - hrc
   - hrc-worker
+  - hrcs
+  - hrcw-github
 
 _hrc_paths:
   linux:

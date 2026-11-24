@@ -1,0 +1,18 @@
+<!-- SPDX-FileCopyrightText: 2026 Nikolay Govorov -->
+<!-- SPDX-License-Identifier: MIT -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Channel.Tests</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Runner.Worker/Runner.Worker.csproj" />
+  </ItemGroup>
+  <!-- Worker is a referenced assembly here, not another executable to launch. -->
+  <Target Name="ExcludeWorkerRuntimeConfig" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'Runner.Worker.runtimeconfig.json'" />
+    </ItemGroup>
+  </Target>
+</Project>

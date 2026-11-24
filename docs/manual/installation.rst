@@ -320,7 +320,7 @@ Installation
 
    .. code-block:: powershell
 
-      Copy-Item .\hrcd.exe, .\hrcs.exe, .\hrcw-github.exe -Destination $installRoot -Force
+      Copy-Item .\hrcd.exe, .\hrcm.exe, .\hrcp-github-queue.exe, .\hrcp-github-worker.exe -Destination $installRoot -Force
       Copy-Item .\runner -Destination "$installRoot\lib\hrc" -Recurse
 
       [xml] $xml = Get-Content .\services\hrc.winsw.xml -Raw
@@ -347,7 +347,7 @@ Installation
 
       sudo ./scripts/preinstall.sh
       sudo install -d -m 0755 -o root -g wheel /usr/local/bin /usr/local/lib/hrc
-      sudo install -m 0755 -o root -g wheel hrcd hrcs hrcw-github /usr/local/bin/
+      sudo install -m 0755 -o root -g wheel hrcd hrcm hrcp-github-queue hrcp-github-worker /usr/local/bin/
       sudo cp -R runner/. /usr/local/lib/hrc/
       sudo chown -R root:wheel /usr/local/lib/hrc
       sudo chmod -R u=rwX,go=rX /usr/local/lib/hrc
@@ -400,7 +400,8 @@ substitute the ``app`` mapping and private key from
       $dataRoot = "$env:ProgramData\hrc"
       $config = @{
           instanceId = 'build-01'
-          spaces = @(@{ id = 'build'; type = 'host'; slot = @{ type = 'pgroup'; ephemeral = $true; quota = @{ cpu = 1; memory = '1GiB' } } })
+          spaces = @(@{ id = 'build'; type = 'host' })
+          slots = @(@{ id = 'workers'; space = 'build'; type = 'pgroup'; ephemeral = $true; quota = @{ cpu = 1; memory = '1GiB' } })
           directories = @{
               runtime = "$installRoot\lib\hrc"
               spaces = 'jobs'
@@ -409,7 +410,7 @@ substitute the ``app`` mapping and private key from
           forges = @(
               @{
                   id = 'hrc-builds'
-                  space = 'build'
+                  slot = 'workers'
                   type = 'github'
                   url = 'https://github.com/YOUR-OWNER/YOUR-REPO'
                   pat = @{ type = 'file'; value = "$dataRoot\secrets\github-token" }

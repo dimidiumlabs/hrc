@@ -109,7 +109,7 @@ func LookupProcessEnv(pid int, name string) (string, bool, error) {
 }
 
 // environmentAddress follows PEB -> ProcessParameters -> Environment. The
-// controller is amd64 or arm64, but a child can use the 32-bit WOW64 layout.
+// parent is amd64 or arm64, but a child can use the 32-bit WOW64 layout.
 // ProcessWow64Information gives the 32-bit PEB directly; no guessed PEB offset
 // is needed. The offsets are the Windows PEB/process-parameters layouts.
 func environmentAddress(handle windows.Handle) (uintptr, error) {

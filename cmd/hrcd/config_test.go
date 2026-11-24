@@ -23,7 +23,7 @@ func checkError(t *testing.T, err error, want string) {
 	}
 }
 
-const forgeJSON = `{"url":"https://github.com/org","pat":{"type":"inline","value":"token"}}`
+const forgeJSON = `{"type":"github","url":"https://github.com/org","pat":{"type":"inline","value":"token"}}`
 const poolConfigJSON = `{"instanceId":"host","spaces":[{"id":"build","type":"host","dir":"work"}],"slots":[{"id":"workers","space":"build","type":"pgroup","quota":{"cpu":2,"memory":"8GiB"},"ephemeral":true}],"forges":[{"id":"forge","slot":"workers","type":"github","url":"https://github.com/org","pat":{"type":"inline","value":"token"}}]}`
 
 func TestConfigValidate(t *testing.T) {
@@ -85,7 +85,10 @@ forges:
 		{"unknown space", ".json", strings.Replace(poolConfigJSON, `"type":"host"`, `"type":"other"`, 1), "unknown configuration type"},
 		{"unknown slot", ".json", strings.Replace(poolConfigJSON, `"type":"pgroup"`, `"type":"other"`, 1), "unknown configuration type"},
 		{"unknown slot field", ".json", strings.Replace(poolConfigJSON, `"type":"pgroup"`, `"type":"pgroup","image":"x"`, 1), "unknown"},
-		{"unknown forge field", ".json", strings.Replace(poolConfigJSON, `"type":"github"`, `"type":"github","dir":"x"`, 1), "unknown"},
+		{"opaque forge field", ".json", strings.Replace(poolConfigJSON, `"type":"github"`, `"type":"github","future_field":"x"`, 1), ""},
+		{"default forge type", ".json", strings.Replace(poolConfigJSON, `"type":"github",`, ``, 1), ""},
+		{"null forge", ".json", strings.Replace(poolConfigJSON, `"forges":[`, `"forges":[null,`, 1), "object"},
+		{"no public provider registry", ".json", strings.Replace(poolConfigJSON, `"instanceId"`, `"providers":{},"instanceId"`, 1), "unknown"},
 		{"old nested slot", ".json", strings.Replace(poolConfigJSON, `"type":"host"`, `"type":"host","slot":{}`, 1), "unknown"},
 		{"bad quota", ".json", strings.Replace(poolConfigJSON, `"cpu":2`, `"cpu":-1`, 1), "cpu"},
 		{"bad pool id", ".json", strings.Replace(poolConfigJSON, `"id":"workers"`, `"id":"../bad"`, 1), "id"},

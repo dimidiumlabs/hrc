@@ -1,23 +1,21 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
 // SPDX-License-Identifier: BSD-3-Clause
 
-// Package spacehost owns a directory and a separate host scheduler process.
+// Package spacehost owns a directory and a separate host monitor process.
 package spacehost
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"sync"
-	"time"
 
+	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
-	platformruntime "dimidiumlabs.io/hrc/internal/runtime"
+	"dimidiumlabs.io/hrc/internal/runtime"
 	"dimidiumlabs.io/hrc/internal/space"
 	"google.golang.org/protobuf/proto"
 )
@@ -27,12 +25,13 @@ type SpaceHost struct {
 
 	mu sync.Mutex
 
-	cmd    *exec.Cmd
+	child  *runtime.Child
+	pool   *runtime.Pool
 	name   string
 	args   []string
 	config *space.Config
 
-	rootDir, sockDir string
+	rootDir string
 }
 
 var (
@@ -40,10 +39,10 @@ var (
 	_ space.DaemonDelegate = (*SpaceHost)(nil)
 )
 
-// New prepares configuration only. Run launches hrcs on the first Job.
-func New(name, root string, command []string, config *space.Config) (*SpaceHost, error) {
+// New prepares configuration only. Run launches hrcm on the first Job.
+func New(name, root string, command []string, config *space.Config, pool *runtime.Pool) (*SpaceHost, error) {
 	if name == "" || root == "" || len(command) == 0 {
-		return nil, fmt.Errorf("%w: space name, root and scheduler command are required", space.ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: space name, root and monitor command are required", space.ErrInvalidConfig)
 	}
 
 	root, err := filepath.Abs(root)
@@ -52,9 +51,9 @@ func New(name, root string, command []string, config *space.Config) (*SpaceHost,
 	}
 
 	command = slices.Clone(command)
-	path, err := platformruntime.LookPath(command[0])
+	path, err := runtime.LookPath(command[0])
 	if err != nil {
-		return nil, fmt.Errorf("%w: find scheduler: %w", space.ErrInvalidConfig, err)
+		return nil, fmt.Errorf("%w: find monitor: %w", space.ErrInvalidConfig, err)
 	}
 	command[0] = path
 
@@ -63,6 +62,7 @@ func New(name, root string, command []string, config *space.Config) (*SpaceHost,
 		rootDir: root,
 		config:  proto.CloneOf(config),
 		args:    command,
+		pool:    pool,
 	}
 	space.Daemon.Delegate = &space
 	return &space, nil
@@ -120,102 +120,41 @@ func (s *SpaceHost) connect(ctx context.Context) error {
 	return failure
 }
 
-// start launches a scheduler after connect has retired the previous generation.
+// start launches a monitor after connect has retired the previous generation.
 // The caller holds s.mu and handles lifecycle status and error classification.
 func (s *SpaceHost) start(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
+	if err := os.MkdirAll(s.rootDir, 0700); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.rootDir, 0o700); err != nil {
-		return err
-	}
-
-	// AF_UNIX path lengths are short, independently of the workspace path.
-	dir, err := os.MkdirTemp("", "hrc-space-")
-	if err != nil {
-		return err
-	}
-
-	s.sockDir = dir
-	socket := filepath.Join(dir, "scheduler.sock")
-
-	listener, err := net.Listen("unix", socket)
-	if err != nil {
-		return err
-	}
-	defer listener.Close()
-
-	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
+	startup, cancel := context.WithTimeout(ctx, hrcconfig.ProcessStartTimeout)
 	defer cancel()
-
-	stop := context.AfterFunc(startup, func() { listener.Close() })
-	defer stop()
-
-	args := append(slices.Clone(s.args[1:]), "-connect", socket)
-	s.cmd = exec.Command(s.args[0], args...)
-	s.cmd.Dir = s.rootDir
-	s.cmd.Stdout, s.cmd.Stderr = os.Stdout, os.Stderr
-	configureProcess(s.cmd)
-
-	if err := s.cmd.Start(); err != nil {
-		return err
+	var err error
+	s.child, err = s.pool.Start(startup, runtime.ChildSpec{
+		Command:    runtime.Command{Path: s.args[0], Args: s.args[1:], Dir: s.rootDir, Stdout: os.Stdout, Stderr: os.Stderr},
+		SocketArgs: func(socket string) []string { return []string{"-connect", socket} },
+	})
+	if err != nil {
+		return fmt.Errorf("start monitor: %w", err)
 	}
-
-	conn, err := listener.Accept()
-	if err == nil {
-		err = s.Daemon.Connect(startup, conn, s.config)
-		if err == nil {
-			return nil
-		}
-	}
-
-	if startup.Err() != nil {
-		err = startup.Err()
-	}
-
-	return fmt.Errorf("start scheduler: %w", err)
+	return s.Daemon.Connect(startup, s.child.Connection(), s.config)
 }
 
-// cleanup releases this generation's resources so another scheduler can start.
-// The caller holds s.mu and publishes lifecycle status. The process outcome is
-// separate from cleanup errors: rollback and replacement may discard an exit
-// error, but must not discard a failure to release resources.
+// cleanup retires the protocol before releasing its child through the pool.
+// The caller holds s.mu and publishes lifecycle status.
 func (s *SpaceHost) cleanup() (exitErr, err error) {
 	err = s.Daemon.Close()
-	if cmd := s.cmd; cmd != nil && cmd.Process != nil && cmd.ProcessState == nil {
-		// Wait belongs to this cleanup operation. Its goroutine only delivers
-		// the result; cleanup always receives it before releasing the process.
-		waited := make(chan error, 1)
-		go func(result chan<- error) { result <- cmd.Wait() }(waited)
-
-		if s.Status() != space.Connecting {
-			// Closing RPC lets a connected scheduler drain its Runs first.
-			timer := time.NewTimer(30 * time.Second)
-			select {
-			case exitErr = <-waited:
-				waited = nil
-			case <-timer.C:
-			}
-			timer.Stop()
-		}
-		if waited != nil {
-			killErr := cmd.Process.Kill()
-			exitErr = <-waited
-			// Windows may reject TerminateProcess for an already-exited
-			// process before Wait reaps it. A confirmed process outcome means
-			// there is no process left to kill, regardless of that error.
-			if cmd.ProcessState == nil && killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
-				err = errors.Join(err, killErr)
-			}
-		}
+	if s.child == nil {
+		return nil, err
 	}
-	if s.sockDir != "" {
-		err = errors.Join(err, os.RemoveAll(s.sockDir))
+	grace := hrcconfig.MonitorExitTimeout
+	if s.Status() == space.Connecting {
+		grace = 0
 	}
-	if err == nil {
-		s.cmd, s.sockDir = nil, ""
+	exitErr, cleanup := s.child.Close(grace)
+	if cleanup == nil {
+		s.child = nil
 	}
-	return exitErr, err
+	return exitErr, errors.Join(err, cleanup)
 }
 
 // Disconnected delegates connection-loss cleanup to the environment owner.

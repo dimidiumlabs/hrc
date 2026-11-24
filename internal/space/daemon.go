@@ -11,13 +11,14 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
-	"time"
 
+	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
 	"google.golang.org/grpc"
 )
 
-// Daemon owns lifecycle status and successive scheduler connections. Its zero
+// Daemon is the daemon-side client of a space's monitor. It owns lifecycle
+// status and successive monitor connections. Its zero
 // value is idle. Each Run stays with its original connection and is never replayed.
 // The owner must serialize Connect, Close and lifecycle SetStatus calls.
 type Daemon struct {
@@ -27,7 +28,7 @@ type Daemon struct {
 	Delegate DaemonDelegate
 
 	// Capacity is the initial greeting's capacity when constructed by NewDaemon.
-	// State reports the capacity of the current scheduler after reconnection.
+	// State reports the capacity of the current monitor after reconnection.
 	Capacity int
 }
 
@@ -105,7 +106,7 @@ func NewDaemon(ctx context.Context, conn net.Conn, config *Config) (*Daemon, err
 	return c, nil
 }
 
-// Connect replaces the scheduler connection and performs Init. On success it
+// Connect replaces the monitor connection and performs Init. On success it
 // remains Starting; the owner publishes Ready after completing its own startup.
 // The previous connection is closed before installing a new one.
 func (c *Daemon) Connect(ctx context.Context, conn net.Conn, config *Config) error {
@@ -137,7 +138,7 @@ func (c *Daemon) Connect(ctx context.Context, conn net.Conn, config *Config) err
 		err = ready.Error.Err()
 	}
 	if err == nil && (ready.Version != Version || ready.Capacity == 0 || ready.Capacity > uint64(^uint(0)>>1)) {
-		err = errors.New("invalid scheduler greeting")
+		err = errors.New("invalid monitor greeting")
 	}
 	if err != nil {
 		generation.abort(err)
@@ -275,7 +276,7 @@ func (r *run) Result() (provider.Result, []byte) {
 }
 
 func (r *run) send(ctx context.Context, command *RunCommand) error {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, hrcconfig.ControlTimeout)
 	defer cancel()
 	select {
 	case <-ctx.Done():

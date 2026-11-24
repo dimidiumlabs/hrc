@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
 // SPDX-License-Identifier: BSD-3-Clause
 
-// Messages describe one scheduler generation. Provider payloads remain opaque.
+// Messages describe one monitor generation. Provider payloads remain opaque.
 package space
 
 import (
@@ -13,10 +13,7 @@ import (
 	"dimidiumlabs.io/hrc/internal/slot"
 )
 
-const (
-	Version        = 1
-	MaxMessageSize = 64 << 20
-)
+const Version = 1
 
 // Only stable public errors cross IPC; provider errors retain their message.
 var wireErrors = map[string]error{

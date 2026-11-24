@@ -1,0 +1,246 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: MIT
+
+load("@bazel_skylib//rules:select_file.bzl", "select_file")
+load("@rules_go//go:def.bzl", "go_test")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_filegroup", "pkg_files", "strip_prefix")
+load("@rules_python//python:py_test.bzl", "py_test")
+load("//tools/check:sources.bzl", "check_sources")
+load("//tools/rules_msbuild:msbuild.bzl", "msbuild_publish")
+
+check_sources()
+
+exports_files([
+    "BUILD.bazel",
+    "runner.bzl",
+] + glob([
+    "patch/*.patch",
+    "csharp/*",
+    "csharp-test/*",
+]))
+
+NODE_PLATFORMS = {
+    os + "_" + arch: (os, arch)
+    for os in [
+        "linux",
+        "darwin",
+        "win",
+    ]
+    for arch in [
+        "x64",
+        "arm64",
+    ]
+}
+
+[
+    config_setting(
+        name = "externals_files_" + platform,
+        constraint_values = [
+            "@platforms//os:" + {
+                "darwin": "osx",
+                "linux": "linux",
+                "win": "windows",
+            }[os],
+            "@platforms//cpu:" + {
+                "arm64": "aarch64",
+                "x64": "x86_64",
+            }[arch],
+        ],
+    )
+    for platform, (os, arch) in NODE_PLATFORMS.items()
+]
+
+NODE_DISTRIBUTIONS = [
+    (
+        "node" + major + "_" + platform + variant,
+        platform,
+        "@node" + major + "_" + (("linux_musl" if variant else "linux_glibc") if os == "linux" else os) + "_" + arch,
+        "runner/externals/node" + major + variant,
+    )
+    for platform, (os, arch) in NODE_PLATFORMS.items()
+    for major in [
+        "20",
+        "24",
+    ]
+    for variant in ([
+        "",
+        "_alpine",
+    ] if os == "linux" else [""])
+]
+
+[
+    [
+        select_file(
+            name = "externals_files_" + target + "_license",
+            srcs = repo + "//:npm_files",
+            subpath = "bin/nodejs/LICENSE",
+        ),
+        pkg_files(
+            name = "externals_files_" + target,
+            srcs = [
+                repo + "//:node_bin",
+                ":externals_files_" + target + "_license",
+            ],
+            attributes = pkg_attributes(mode = "0755"),
+            prefix = prefix,
+            renames = {repo + "//:node_bin": "bin/node.exe"} if platform.startswith("win_") else {},
+            strip_prefix = strip_prefix.from_root("bin/nodejs"),
+        ),
+    ]
+    for target, platform, repo, prefix in NODE_DISTRIBUTIONS
+]
+
+pkg_filegroup(
+    name = "externals_files",
+    srcs = select({
+        ":externals_files_" + platform: [
+            ":externals_files_" + target
+            for target, target_platform, _, _ in NODE_DISTRIBUTIONS
+            if target_platform == platform
+        ]
+        for platform in NODE_PLATFORMS
+    }),
+    visibility = ["//visibility:public"],
+)
+
+RID = select({
+    "@platforms//os:linux": "linux",
+    "@platforms//os:osx": "osx",
+    "@platforms//os:windows": "win",
+}) + "-" + select({
+    "@platforms//cpu:aarch64": "arm64",
+    "@platforms//cpu:x86_64": "x64",
+})
+
+config_setting(
+    name = "bundled_dotnet",
+    flag_values = {"//:bundled-dotnet": "true"},
+)
+
+WORKER_STAGED_FILES = {
+    "//internal/provider:provider.proto": "Runner.Worker/Hrc/provider.proto",
+    "@actions_runner//:build_constants": "Runner.Sdk/BuildConstants.cs",
+} | {source: "Runner.Worker/Hrc/" + source.split("/")[-1] for source in glob(["csharp/*"])}
+
+msbuild_publish(
+    name = "hrcp-github-worker",
+    srcs = ["@actions_runner//:msbuild_sources"],
+    assembly_name = "Runner.Worker",
+    binary_name = "hrcp-github-worker",
+    packages = ["@msbuild_feed//:packages"],
+    project = "Runner.Worker/Runner.Worker.csproj",
+    properties = select({
+        ":externals_files_" + platform: {
+            "BUILD_OS": {
+                "darwin": "OSX",
+                "linux": "Linux",
+                "win": "Windows",
+            }[os],
+            "PackageRuntime": {
+                "darwin": "osx",
+                "linux": "linux",
+                "win": "win",
+            }[os] + "-" + arch,
+        }
+        for platform, (os, arch) in NODE_PLATFORMS.items()
+    }),
+    rid = RID,
+    self_contained = select({
+        ":bundled_dotnet": True,
+        "//conditions:default": False,
+    }),
+    staged_files = WORKER_STAGED_FILES,
+    version = "@actions_runner//:runnerversion",
+    visibility = ["//visibility:public"],
+)
+
+msbuild_publish(
+    name = "channel_test_binary",
+    srcs = ["@actions_runner//:msbuild_sources"],
+    packages = ["@msbuild_feed//:packages"],
+    project = "Channel.Tests/Channel.Tests.csproj",
+    assembly_name = "Channel.Tests",
+    binary_name = "channel-test",
+    staged_files = WORKER_STAGED_FILES | {source: "Channel.Tests/" + source.split("/")[-1] for source in glob(["csharp-test/*"])},
+    version = "@actions_runner//:runnerversion",
+    rid = RID,
+    tags = ["manual"],
+    testonly = True,
+)
+
+py_test(
+    name = "runtime_config_test",
+    size = "small",
+    srcs = ["runtime_config_test.py"],
+    args = ["$(rootpath :hrcp-github-worker)"],
+    data = [":hrcp-github-worker"],
+)
+
+go_test(
+    name = "worker_test",
+    size = "small",
+    srcs = ["rpc_test.go"],
+    args = [
+        "-worker=$(rlocationpath :hrcp-github-worker)",
+        "-channel-test=$(rlocationpath :channel_test_binary)",
+    ],
+    data = [
+        ":channel_test_binary",
+        ":hrcp-github-worker",
+    ],
+    deps = [
+        "//internal/config",
+        "//internal/provider",
+        "//internal/runtime",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@rules_go//go/runfiles",
+    ],
+)
+
+pkg_files(
+    name = "worker_files",
+    srcs = [":hrcp-github-worker"],
+    attributes = pkg_attributes(mode = "0755"),
+    renames = select({
+        "@platforms//os:windows": {":hrcp-github-worker": "hrcp-github-worker.exe"},
+        "//conditions:default": {":hrcp-github-worker": "hrcp-github-worker"},
+    }),
+    strip_prefix = strip_prefix.files_only(),
+)
+
+pkg_files(
+    name = "worker_scripts",
+    srcs = [
+        "@actions_runner//:Misc/layoutbin/hashFiles/index.js",
+        "@actions_runner//:Misc/layoutbin/macos-run-invoker.js",
+    ],
+    prefix = "runner/scripts",
+    renames = {
+        "@actions_runner//:Misc/layoutbin/hashFiles/index.js": "hashFiles.js",
+        "@actions_runner//:Misc/layoutbin/macos-run-invoker.js": "macosRunInvoker.js",
+    },
+    strip_prefix = strip_prefix.files_only(),
+)
+
+pkg_files(
+    name = "worker_metadata",
+    srcs = [
+        "@actions_runner//:runnerversion",
+        "@actions_runner_license//file",
+    ],
+    prefix = "runner",
+    renames = {"@actions_runner//:runnerversion": "VERSION"},
+    strip_prefix = strip_prefix.files_only(),
+)
+
+pkg_filegroup(
+    name = "runner",
+    srcs = [
+        ":externals_files",
+        ":worker_files",
+        ":worker_metadata",
+        ":worker_scripts",
+    ],
+    visibility = ["//visibility:public"],
+)

@@ -94,7 +94,7 @@ const (
 	NetworkError
 )
 
-// Event stop execution. A positive Grace overrides the controller's default;
+// Event stop execution. A positive Grace overrides the daemon's default;
 // provider-specific timeout encodings and adjustments are resolved beforehand.
 type Event struct {
 	Type  EventType

@@ -2,7 +2,7 @@ GitHub access
 =============
 
 Choose where runners register, then give hrc credentials for that scope.
-The controller obtains and renews runner registration tokens itself; you do
+The GitHub provider obtains and renews runner registration tokens; you do
 not run ``config.sh`` or supply a short-lived registration token manually.
 
 Registration scope

@@ -14,8 +14,8 @@ service(
     deps = [
         "//:docs_sources",
         "//:licenses",
-        "//cmd/hrcs",
-        "//internal/provider-github/worker:runner",
+        "//cmd/hrcm",
+        "//cmd/hrcp-github",
     ],
     os = OS,
     arch = ARCH,

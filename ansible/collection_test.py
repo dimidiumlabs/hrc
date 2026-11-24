@@ -233,7 +233,17 @@ class CollectionTest(unittest.TestCase):
 
         binaries = check_root / "bin"
         binaries.mkdir(parents=True)
-        names = {"hrc", "hrc-worker", "hrcd", "hrcs", "hrcw-github", "hrc-custom"}
+        names = {
+            "hrc",
+            "hrc-worker",
+            "hrcd",
+            "hrcm",
+            "hrcs",
+            "hrcp-github-queue",
+            "hrcp-github-worker",
+            "hrcw-github",
+            "hrc-custom",
+        }
         for name in names:
             (binaries / name).write_text(name)
 
@@ -261,7 +271,8 @@ class CollectionTest(unittest.TestCase):
         self.assertEqual({path.name for path in binaries.iterdir()}, names)
         self.cli("ansible.cli.playbook", *args)
         self.assertEqual(
-            {path.name for path in binaries.iterdir()}, names - {"hrc", "hrc-worker"}
+            {path.name for path in binaries.iterdir()},
+            names - {"hrc", "hrc-worker", "hrcs", "hrcw-github"},
         )
         output = self.cli("ansible.cli.playbook", *args)
         self.assertRegex(output, r"\bchanged=0\b")

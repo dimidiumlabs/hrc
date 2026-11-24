@@ -7,15 +7,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"dimidiumlabs.io/hrc/internal/provider"
-	github "dimidiumlabs.io/hrc/internal/provider-github"
-	"dimidiumlabs.io/hrc/internal/provider-github/worker"
-	platformruntime "dimidiumlabs.io/hrc/internal/runtime"
+	"dimidiumlabs.io/hrc/internal/runtime"
 	"dimidiumlabs.io/hrc/internal/slot"
 )
 
@@ -23,7 +20,7 @@ import (
 // Worker selection and process launch are explicit implementation details.
 type Slot struct {
 	dir           string
-	group         *pgroup
+	group         *runtime.Group
 	launch        func(context.Context, *Slot, provider.Job) (provider.Run, error)
 	mu            sync.Mutex
 	active        *run
@@ -34,16 +31,20 @@ type Slot struct {
 	destroyErr    error
 }
 
-// New creates a process slot with explicitly configured GitHub execution.
-func New(dir string, config *github.WorkerConfig) (*Slot, error) {
+// New creates a process slot with trusted provider commands.
+func New(dir string, providers map[string]provider.ProcessConfig, pool *runtime.Pool) (*Slot, error) {
 	return newSlot(dir, func(ctx context.Context, target *Slot, job provider.Job) (provider.Run, error) {
-		switch job.Type() {
-		case "github":
-			if config != nil {
-				return config.Run(ctx, target, job)
-			}
+		config, ok := providers[job.Type()]
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", slot.ErrProviderUnavailable, job.Type())
 		}
-		return nil, fmt.Errorf("%w: %s", slot.ErrProviderUnavailable, job.Type())
+		payload, err := job.Marshal()
+		if err != nil {
+			return nil, err
+		}
+		return provider.StartWorker(ctx, config, payload, runtime.Command{
+			Group: target.group, Dir: target.dir, Stdout: os.Stdout, Stderr: os.Stderr,
+		}, pool)
 	})
 }
 
@@ -52,7 +53,7 @@ func newSlot(dir string, launch func(context.Context, *Slot, provider.Job) (prov
 	if err != nil {
 		return nil, errors.Join(slot.ErrPrepare, err)
 	}
-	group, err := newPGroup()
+	group, err := runtime.NewGroup()
 	if err != nil {
 		return nil, errors.Join(slot.ErrPrepare, err)
 	}
@@ -66,36 +67,6 @@ func (s *Slot) Cwd() string                 { return s.dir }
 func (*Slot) Type() string                  { return "pgroup" }
 func (s *Slot) Path(parts ...string) string { return filepath.Join(parts...) }
 func (s *Slot) Status() slot.Status         { s.mu.Lock(); defer s.mu.Unlock(); return s.status }
-
-// Exec is only the host provider adapter's process primitive.
-func (s *Slot) Exec(ctx context.Context, command Command) (Process, error) {
-	if command.Dir == "" {
-		command.Dir = s.dir
-	}
-	p, err := s.group.Start(ctx, command)
-	if err != nil {
-		return nil, err
-	}
-	return p, nil
-}
-
-// StartWorker uses GitHub's original spawnclient pipe protocol directly.
-func (s *Slot) StartWorker(ctx context.Context, config worker.Config, env []string) (worker.Process, io.WriteCloser, error) {
-	path, err := platformruntime.LookPath(config.Path)
-	if err != nil {
-		return nil, nil, fmt.Errorf("find Worker: %w", err)
-	}
-	p, err := s.Exec(ctx, Command{
-		Path: path, Dir: config.WorkDir, Args: []string{"spawnclient"},
-		Env: env, EnvFile: s.Path(config.Dir, ".env"),
-		Pipes:  []PipeDirection{PipeRead, PipeWrite},
-		Stdout: config.Stdout, Stderr: config.Stderr,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return p, p.Pipes()[0], nil
-}
 
 func (s *Slot) Run(ctx context.Context, job provider.Job) (provider.Run, error) {
 	s.mu.Lock()
