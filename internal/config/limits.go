@@ -5,4 +5,4 @@ package config
 
 // GRPCMaxMessageSize bounds one serialized message in either direction on local
 // daemon, monitor and provider connections. Keep the C# worker's limit in sync.
-const GRPCMaxMessageSize = 64 << 20
+const GRPCMaxMessageSize = 256 << 10

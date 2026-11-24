@@ -23,7 +23,7 @@ namespace GitHub.Runner.Worker
     public sealed class HrcWorkerHost : RunnerService, IProcessChannel
     {
         // Keep in sync with config.GRPCMaxMessageSize in internal/config/limits.go.
-        private const int MaxMessageSize = 64 << 20;
+        private const int MaxMessageSize = 256 << 10;
 
         private static readonly AsyncLocal<HrcWorkerHost> CurrentChannel = new();
         public static bool Handles(string[] args) => args.Length > 0 && (args[0] == "-connect" || args[0] == "-version");

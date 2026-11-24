@@ -14,6 +14,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
 	"dimidiumlabs.io/hrc/internal/space"
 	"google.golang.org/grpc"
@@ -287,6 +288,91 @@ func TestIdleConnectionStaysAvailable(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+// The limit applies to the serialized message, including protobuf overhead.
+// Leave headroom for an accepted payload; a limit-sized payload must be rejected.
+func TestRPCMessageSizeLimits(t *testing.T) {
+	for _, oversized := range []bool{false, true} {
+		name, size := "within-limit", config.GRPCMaxMessageSize-128
+		if oversized {
+			name, size = "over-limit", config.GRPCMaxMessageSize
+		}
+		payload := bytes.Repeat([]byte("x"), size)
+		for _, direction := range []string{"server-receive", "server-send", "client-send", "client-receive"} {
+			t.Run(direction+"/"+name, func(t *testing.T) {
+				output := payload
+				if direction == "server-receive" || direction == "client-send" {
+					output = []byte("accepted")
+				}
+				implementation := &Scheduler{
+					Configure: func(*space.Config) error { return nil },
+					Execute: func(context.Context, string, []byte, <-chan provider.StopReason) (provider.Result, []byte, error) {
+						return provider.Succeeded, output, nil
+					},
+				}
+				check := func(err error, data []byte) {
+					t.Helper()
+					if oversized {
+						if status.Code(err) != codes.ResourceExhausted {
+							t.Fatalf("oversized message: %v", err)
+						}
+					} else if err != nil || !bytes.Equal(data, output) {
+						t.Fatalf("message: %d bytes, error=%v", len(data), err)
+					}
+				}
+				if direction == "server-receive" || direction == "server-send" {
+					// The test client uses gRPC defaults, so only the server can reject this.
+					rpc := testRPC(t, implementation)
+					stream, err := rpc.Run(t.Context())
+					if err != nil {
+						t.Fatal(err)
+					}
+					input := []byte("job")
+					if direction == "server-receive" {
+						input = payload
+					}
+					err = stream.Send(&space.RunCommand{Command: &space.RunCommand_Start{Start: &space.StartRequest{Provider: "test", Payload: input}}})
+					if err != nil && !errors.Is(err, io.EOF) {
+						t.Fatal(err)
+					}
+					event, err := stream.Recv()
+					check(err, event.GetFinishResult().GetData())
+					return
+				}
+				var client *space.Daemon
+				if direction == "client-send" {
+					client, _ = testDaemon(t, implementation)
+				} else {
+					// Bypass Scheduler.Serve's limits to exercise the daemon client's receive
+					// limit independently of the monitor's send limit.
+					left, right := net.Pipe()
+					server := grpc.NewServer()
+					space.RegisterSchedulerServer(server, implementation)
+					done := make(chan error, 1)
+					go func() { done <- server.Serve(&singleListener{conn: right, done: make(chan struct{})}) }()
+					var err error
+					client, err = space.NewDaemon(t.Context(), left, &space.Config{Capacity: 1})
+					t.Cleanup(func() { left.Close(); server.Stop(); right.Close(); <-done })
+					if err != nil {
+						t.Fatal(err)
+					}
+					t.Cleanup(func() { client.Close() })
+				}
+				input := []byte("job")
+				if direction == "client-send" {
+					input = payload
+				}
+				run, err := client.Start(t.Context(), "test", input)
+				var data []byte
+				if err == nil {
+					err = <-run.Done()
+					_, data = run.Result()
+				}
+				check(err, data)
+			})
+		}
+	}
 }
 
 func TestConcurrentRunsPreserveOpaquePayload(t *testing.T) {

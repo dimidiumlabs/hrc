@@ -25,8 +25,9 @@ Changed
   installation commands and service PATHs; the Ansible install role removes
   the obsolete ``hrcs`` binary.
 - Centralize shared local RPC limits and lifecycle, cleanup, retry and secret
-  command timeouts in ``internal/config``, without changing their values. The
-  local gRPC message limit remains 64 MiB.
+  command timeouts in ``internal/config``.
+- Reduce the per-message local gRPC limit from 64 MiB to 256 KiB in both
+  directions, including serialized protobuf overhead.
 - Isolate GitHub acquisition and execution in ``hrcp-github-queue`` and
   ``hrcp-github-worker`` provider processes. The ``hrcd`` daemon coordinates
   acquisition and routes jobs to a separate ``hrcm`` monitor for each space.

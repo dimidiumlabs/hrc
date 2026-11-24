@@ -40,6 +40,7 @@ go_test(
     srcs = glob(["*_test.go"]),  # keep
     embed = [":hrcm_lib"],
     deps = [
+        "//internal/config",
         "//internal/provider",
         "//internal/slot",
         "//internal/space",

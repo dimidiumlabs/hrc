@@ -20,6 +20,8 @@ import (
 	"dimidiumlabs.io/hrc/internal/provider"
 	"dimidiumlabs.io/hrc/internal/runtime"
 	"github.com/bazelbuild/rules_go/go/runfiles"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var worker = flag.String("worker", "", "C# worker executable")
@@ -109,7 +111,7 @@ func TestWorkerValidation(t *testing.T) {
 		{"unsafe-id", `{"Dir":"."}`, `{"ID":"../escape","Job":{}}`, provider.ErrInvalidJob},
 		{"missing-job", `{}`, `{"ID":"test"}`, provider.ErrInvalidJob},
 		{"invalid-settings", `{}`, `{"ID":"test","Settings":false,"Job":{}}`, provider.ErrInvalidJob},
-		{"large-payload", `{}`, `{"ID":"test","Job":{"ignored":"` + strings.Repeat("x", 1<<20) + `"}}`, provider.ErrInvalidConfig},
+		{"large-payload", `{}`, `{"ID":"test","Job":{"ignored":"` + strings.Repeat("x", config.GRPCMaxMessageSize-128) + `"}}`, provider.ErrInvalidConfig},
 		{"missing-config", `{}`, `{"ID":"test","Job":{}}`, provider.ErrInvalidConfig},
 		{"reserved-env", `{"Dir":".","Env":["RUNNER_TRACKING_GROUP=fake"]}`, `{"ID":"test","Job":{}}`, provider.ErrInvalidConfig},
 	} {
@@ -130,6 +132,37 @@ func TestWorkerValidation(t *testing.T) {
 				t.Fatalf("control after outcome = %v, %v", state, err)
 			}
 		})
+	}
+}
+
+func TestWorkerRejectsOversizedMessage(t *testing.T) {
+	path, err := runfiles.Rlocation(*worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := provider.LaunchWorker(t.Context(), runtime.Command{Path: path}, &runtime.Pool{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := child.Close(); err != nil {
+			t.Error(err)
+		}
+		// gRPC terminates the stream on a send-size violation. Depending on parent
+		// retirement timing, C# observes ResourceExhausted (exit 1) or cancellation
+		// (exit 0). This is an intentional protocol failure, not normal shutdown.
+		if err := child.Err(); err != nil {
+			var exit *runtime.ExitError
+			if !errors.As(err, &exit) || exit.Code != 1 {
+				t.Error(err)
+			}
+		}
+	})
+	err = child.Send(&provider.TaskCommand{Command: &provider.TaskCommand_Start{Start: &provider.TaskStart{
+		Config: []byte("{}"), Payload: make([]byte, config.GRPCMaxMessageSize),
+	}}})
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("oversized message: %v", err)
 	}
 }
 
