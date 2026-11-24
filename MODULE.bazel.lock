@@ -341,7 +341,7 @@
   "moduleExtensions": {
     "//tools/rules_msbuild:dependencies.bzl%dependencies": {
       "os:linux,arch:amd64": {
-        "bzlTransitiveDigest": "+Y46yTj1XfPNpQegd3BY7ERj/RHnVGSfuSAAB60XRBc=",
+        "bzlTransitiveDigest": "3Eoej/hUK4QlzhyU++2tVmC8x+6GSeh27TLQDId5guQ=",
         "usagesDigest": "lv7JVb+koUx+7dByANTWjCB0cotEIkwPOMFtIwys5TA=",
         "recordedInputs": [
           "REPO_MAPPING:,actions_runner +http_archive+actions_runner"
@@ -374,7 +374,8 @@
                 "@@+http_archive+actions_runner//:Runner.Sdk/Runner.Sdk.csproj",
                 "@@+http_archive+actions_runner//:Runner.Common/Runner.Common.csproj",
                 "@@+http_archive+actions_runner//:Runner.Worker/Runner.Worker.csproj"
-              ]
+              ],
+              "staged_files": {}
             }
           }
         }

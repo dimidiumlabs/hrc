@@ -6,6 +6,8 @@
 def _feed_impl(ctx):
     for source in ctx.attr.srcs:
         ctx.file(source.name, ctx.read(source))
+    for source, destination in ctx.attr.staged_files.items():
+        ctx.file(destination, ctx.read(source))
     for rid in ctx.attr.rids:
         result = ctx.execute(
             [str(ctx.path(ctx.attr.sdk)), "restore", ctx.attr.project, "--runtime", rid, "--packages", str(ctx.path("packages"))] +
@@ -30,6 +32,7 @@ _feed = repository_rule(
         "rids": attr.string_list(mandatory = True),
         "sdk": attr.label(mandatory = True),
         "srcs": attr.label_list(mandatory = True),
+        "staged_files": attr.label_keyed_string_dict(allow_files = True),
     },
 )
 
@@ -55,6 +58,7 @@ def _dependencies_impl(ctx):
                 project = feed.project,
                 properties = feed.properties,
                 srcs = feed.srcs,
+                staged_files = feed.staged_files,
             )
 
 _feed_tag = tag_class(attrs = {
@@ -63,6 +67,7 @@ _feed_tag = tag_class(attrs = {
     "properties": attr.string_dict(),
     "rids": attr.string_list(),
     "srcs": attr.label_list(mandatory = True),
+    "staged_files": attr.label_keyed_string_dict(allow_files = True),
 })
 
 dependencies = module_extension(
