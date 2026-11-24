@@ -21,6 +21,9 @@ Changed
   ``app``, ``pat`` or ``jwt``.
 - Re-license the GitHub provider, including its runner integration, tests, build
   files and patches, under MIT. Shared core and tooling remain BSD-3-Clause.
+- Rename the space monitor executable from ``hrcs`` to ``hrcm``. Update
+  installation commands and service PATHs; the Ansible install role removes
+  the obsolete ``hrcs`` binary.
 
 Fixed
 ~~~~~

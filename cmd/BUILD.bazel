@@ -14,7 +14,7 @@ service(
     deps = [
         "//:docs_sources",
         "//:licenses",
-        "//cmd/hrcs",
+        "//cmd/hrcm",
         "//internal/provider-github/worker:runner",
     ],
     os = OS,

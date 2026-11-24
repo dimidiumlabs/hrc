@@ -11,7 +11,7 @@ import (
 )
 
 // hrcd translates service/terminal shutdown into Run commands. A terminal
-// interrupt must not bypass that grace period by also terminating hrcs.
+// interrupt must not bypass that grace period by also terminating hrcm.
 func configureProcess(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }

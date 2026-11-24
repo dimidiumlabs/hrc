@@ -588,7 +588,7 @@ func testRunnerOS() string {
 }
 
 // This integration fixture supplies the execution side without a scheduler
-// process. cmd/hrcs tests exercise that process and IPC independently.
+// process. cmd/hrcm tests exercise that process and IPC independently.
 
 func TestHandleLifecycleWithoutExecution(t *testing.T) {
 	for _, mode := range []string{"success", "failure", "crash", "cancel", "lease", "refresh", "retry", "recover"} {

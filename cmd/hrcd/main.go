@@ -90,7 +90,7 @@ func (c SpaceConfig) NewSpace(dirs Directories, pool SlotConfig, capacity int, p
 			SlotConfig: slotConfig,
 			Providers:  providers,
 		}
-		return spacehost.New(string(spec.ID), root, []string{"hrcs"}, config)
+		return spacehost.New(string(spec.ID), root, []string{"hrcm"}, config)
 	default:
 		return nil, space.ErrInvalidConfig
 	}

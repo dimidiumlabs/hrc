@@ -7,12 +7,12 @@ load("//tools/check:sources.bzl", "check_sources")
 check_sources()
 
 go_library(
-    name = "hrcs_lib",
+    name = "hrcm_lib",
     srcs = glob(
         ["*.go"],
         exclude = ["*_test.go"],
     ),  # keep
-    importpath = "dimidiumlabs.io/hrc/cmd/hrcs",
+    importpath = "dimidiumlabs.io/hrc/cmd/hrcm",
     visibility = ["//visibility:private"],
     deps = [
         "//internal/config",
@@ -28,17 +28,17 @@ go_library(
 )
 
 go_binary(
-    name = "hrcs",
-    embed = [":hrcs_lib"],
+    name = "hrcm",
+    embed = [":hrcm_lib"],
     pure = "on",
     visibility = ["//visibility:public"],
 )
 
 go_test(
-    name = "hrcs_test",
+    name = "hrcm_test",
     size = "small",
     srcs = glob(["*_test.go"]),  # keep
-    embed = [":hrcs_lib"],
+    embed = [":hrcm_lib"],
     deps = [
         "//internal/provider",
         "//internal/slot",

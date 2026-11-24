@@ -11,8 +11,11 @@ To uninstall hrc, see `Removal <./removal.rst>`__.
 The controller executable is now ``hrcd`` and the GitHub Worker is
 ``hrcw-github`` (with ``.exe`` on Windows). When upgrading from a release using
 ``hrc`` and ``hrc-worker``, copy the new service definition as part of the
-upgrade. The service PATH must include ``hrcd``, ``hrcs`` and ``hrcw-github``. Release archives and service names remain
-``hrc``.
+upgrade. The service PATH must include ``hrcd``, ``hrcm`` and ``hrcw-github``.
+Release archives and service names remain ``hrc``.
+
+The space monitor executable is now ``hrcm``. Remove the former ``hrcs`` binary
+when upgrading; the Ansible install role removes it automatically.
 
 Contents
 --------

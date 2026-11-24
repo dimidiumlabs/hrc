@@ -28,7 +28,7 @@ type Process interface {
 	Close() error
 }
 
-// Config describes paths in the slot, regardless of where hrcs is running.
+// Config describes paths in the slot, regardless of where hrcm is running.
 type Config struct {
 	// Environment owns the workspace and processes across Worker lifetimes.
 	// It is required to start a job; closing a Worker does not close its slot.

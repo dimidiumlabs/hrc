@@ -17,7 +17,7 @@ check_sources(
         "//ansible",
         "//cmd",
         "//cmd/hrcd",
-        "//cmd/hrcs",
+        "//cmd/hrcm",
         "//internal/config",
         "//internal/provider",
         "//internal/provider-github",
@@ -129,7 +129,7 @@ test_suite(
     tests = [
         "//ansible:collection_test",
         "//cmd/hrcd:hrcd_test",
-        "//cmd/hrcs:hrcs_test",
+        "//cmd/hrcm:hrcm_test",
         "//internal/config:config_test",
         "//internal/provider-github:provider-github_test",
         "//internal/provider-github/listener:listener_test",
@@ -161,7 +161,7 @@ alias(
 )
 
 alias(
-    name = "hrcs",
-    actual = "//cmd/hrcs:hrcs",
+    name = "hrcm",
+    actual = "//cmd/hrcm:hrcm",
     visibility = ["//visibility:public"],
 )

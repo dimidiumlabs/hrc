@@ -40,7 +40,7 @@ var (
 	_ space.DaemonDelegate = (*SpaceHost)(nil)
 )
 
-// New prepares configuration only. Run launches hrcs on the first Job.
+// New prepares configuration only. Run launches hrcm on the first Job.
 func New(name, root string, command []string, config *space.Config) (*SpaceHost, error) {
 	if name == "" || root == "" || len(command) == 0 {
 		return nil, fmt.Errorf("%w: space name, root and scheduler command are required", space.ErrInvalidConfig)

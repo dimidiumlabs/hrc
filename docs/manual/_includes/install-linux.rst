@@ -5,7 +5,7 @@ systemd/OpenRC service.
 
    sudo ./scripts/preinstall.sh
    sudo install -d -m 0755 -o root -g root /usr/local/bin /usr/local/lib/hrc
-   sudo install -m 0755 -o root -g root hrcd hrcs hrcw-github /usr/local/bin/
+   sudo install -m 0755 -o root -g root hrcd hrcm hrcw-github /usr/local/bin/
    sudo cp -R runner/. /usr/local/lib/hrc/
    sudo chown -R root:root /usr/local/lib/hrc
    sudo chmod -R u=rwX,go=rX /usr/local/lib/hrc

@@ -28,7 +28,7 @@ import (
 
 var (
 	help    = flag.Bool("help", false, "Show this help")
-	version = flag.Bool("version", false, "Show hrcs version")
+	version = flag.Bool("version", false, "Show hrcm version")
 
 	socket = flag.String("connect", "", "Local scheduler socket")
 )

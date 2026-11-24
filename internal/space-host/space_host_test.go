@@ -404,7 +404,7 @@ func TestProcessExitBeforeConnectionCleansUpOnStartupTimeout(t *testing.T) {
 func TestStartupFailureCanRecover(t *testing.T) {
 	s := testSpace(t)
 	command := s.args[0]
-	s.args[0] = filepath.Join(t.TempDir(), "missing-hrcs")
+	s.args[0] = filepath.Join(t.TempDir(), "missing-hrcm")
 	if _, err := s.Run(t.Context(), &testJob{kind: "test"}); !errors.Is(err, space.ErrUnavailable) {
 		t.Fatalf("startup failure: %v", err)
 	}
