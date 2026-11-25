@@ -31,7 +31,8 @@ type SpaceHost struct {
 	args   []string
 	config *space.Config
 
-	rootDir string
+	rootDir     string
+	initialized bool
 }
 
 var (
@@ -130,13 +131,16 @@ func (s *SpaceHost) start(ctx context.Context) error {
 	defer cancel()
 	var err error
 	s.child, err = s.pool.Start(startup, runtime.ChildSpec{
-		Command:    runtime.Command{Path: s.args[0], Args: s.args[1:], Dir: s.rootDir, Stdout: os.Stdout, Stderr: os.Stderr},
-		SocketArgs: func(socket string) []string { return []string{"-connect", socket} },
+		Command: runtime.Command{Path: s.args[0], Args: s.args[1:], Dir: s.rootDir, Stdout: os.Stdout, Stderr: os.Stderr},
 	})
 	if err != nil {
 		return fmt.Errorf("start monitor: %w", err)
 	}
-	return s.Daemon.Connect(startup, s.child.Connection(), s.config)
+	if err := s.Daemon.Connect(startup, s.child.Connection(), s.config); err != nil {
+		return err
+	}
+	s.initialized = true
+	return nil
 }
 
 // cleanup retires the protocol before releasing its child through the pool.
@@ -147,12 +151,13 @@ func (s *SpaceHost) cleanup() (exitErr, err error) {
 		return nil, err
 	}
 	grace := hrcconfig.MonitorExitTimeout
-	if s.Status() == space.Connecting {
+	if !s.initialized {
 		grace = 0
 	}
 	exitErr, cleanup := s.child.Close(grace)
 	if cleanup == nil {
 		s.child = nil
+		s.initialized = false
 	}
 	return exitErr, errors.Join(err, cleanup)
 }

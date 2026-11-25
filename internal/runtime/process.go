@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"time"
 
 	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 )
@@ -31,10 +32,11 @@ type Command struct {
 	Args, Env      []string
 	Stdout, Stderr io.Writer
 	Input          bool
+	files          []*os.File
 	Pipes          []PipeDirection
 }
 
-// StartChild starts a child without a control socket. The caller owns its cleanup.
+// StartChild starts a child without a control channel. The caller owns its cleanup.
 func StartChild(ctx context.Context, command Command) (*Child, error) {
 	return launchChild(ctx, ChildSpec{Command: command}, nil)
 }
@@ -99,7 +101,7 @@ func (p *Child) startProcess(ctx context.Context, config Command) error {
 		p.pipes = append(p.pipes, parent)
 	}
 	defer p.closeInherited()
-	if err := p.configure(childPipes); err != nil {
+	if err := p.configure(append(childPipes, config.files...)); err != nil {
 		return fmt.Errorf("configure process: %w", err)
 	}
 	if config.Input {
@@ -149,13 +151,15 @@ func (p *Child) Wait() (int, error) {
 	return p.code, p.waitErr
 }
 
-// Kill terminates only this child, without closing its Group or control socket.
+// Kill terminates only this child, without closing its Group or control channel.
 func (p *Child) Kill() error {
 	<-p.started
 	if p.cmd == nil || p.cmd.Process == nil {
 		return nil
 	}
-	err := p.cmd.Process.Kill()
+	// Windows can report access denied for an already exiting process. Use
+	// the same termination confirmation as group cleanup before reporting it.
+	err := killTrackedProcess(p.cmd.Process, time.Now().Add(hrcconfig.ProcessExitTimeout))
 	if errors.Is(err, os.ErrProcessDone) {
 		return nil
 	}

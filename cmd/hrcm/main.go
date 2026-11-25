@@ -11,7 +11,6 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -29,8 +28,6 @@ import (
 var (
 	help    = flag.Bool("help", false, "Show this help")
 	version = flag.Bool("version", false, "Show hrcm version")
-
-	socket = flag.String("connect", "", "Local monitor socket")
 )
 
 func main() {
@@ -44,7 +41,7 @@ func main() {
 		return
 	}
 
-	if *socket == "" {
+	if flag.NArg() != 2 {
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -54,7 +51,7 @@ func main() {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", *socket)
+	conn, err := runtime.InheritedConnection(flag.Args())
 	if err == nil {
 		err = serve(ctx, conn, func(cfg *space.Config) (*scheduler, error) { return configure(cfg, nil) })
 	}

@@ -4,10 +4,12 @@
 package worker_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,6 +37,62 @@ func TestChannelContract(t *testing.T) {
 	output, err := exec.Command(path, "--message-size", strconv.Itoa(config.GRPCMaxMessageSize)).CombinedOutput()
 	if err != nil {
 		t.Fatalf("C# channel contract: %v\n%s", err, output)
+	}
+}
+
+// Command.Pipes supplies two anonymous pipes even on hosts with socketpair.
+// Exercise the same C# stream adapter used by gRPC.
+func TestAnonymousPipeTransport(t *testing.T) {
+	path, err := runfiles.Rlocation(*channelTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Second)
+	defer cancel()
+	payload := bytes.Repeat([]byte("opaque control payload Привет\n"), 8192)
+	var stdout, stderr bytes.Buffer
+	child, err := runtime.StartChild(ctx, runtime.Command{
+		Path: path, Args: []string{"--echo-channel"},
+		Pipes:  []runtime.PipeDirection{runtime.PipeRead, runtime.PipeWrite},
+		Stdout: &stdout, Stderr: &stderr,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { child.Close(0) })
+	written := make(chan error, 1)
+	go func() {
+		_, err := child.Pipes()[0].Write(payload)
+		written <- errors.Join(err, child.Pipes()[0].Close())
+	}()
+	type result struct {
+		data []byte
+		err  error
+	}
+	read := make(chan result, 1)
+	go func() {
+		data, err := io.ReadAll(child.Pipes()[1])
+		read <- result{data, err}
+	}()
+	select {
+	case output := <-read:
+		if output.err != nil {
+			t.Fatal(output.err)
+		}
+		if !bytes.Equal(output.data, payload) {
+			t.Fatalf("control output was corrupted: got %d bytes, want %d", len(output.data), len(payload))
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if err := <-written; err != nil {
+		t.Fatal(err)
+	}
+	if exit, cleanup := child.Close(5 * time.Second); exit != nil || cleanup != nil {
+		t.Fatalf("pipe transport: %v %v\n%s", exit, cleanup, stderr.String())
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("unexpected stdio output: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 

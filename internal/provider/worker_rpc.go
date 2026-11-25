@@ -243,8 +243,7 @@ func LaunchWorker(ctx context.Context, command runtime.Command, pool *runtime.Po
 	context.AfterFunc(lifetime, s.server.Stop)
 	var err error
 	s.child, err = pool.Start(startup, runtime.ChildSpec{
-		Command:    command,
-		SocketArgs: func(socket string) []string { return []string{"-connect", socket} },
+		Command: command,
 	})
 	if err != nil {
 		cancel()

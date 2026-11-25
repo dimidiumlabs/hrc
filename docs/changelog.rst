@@ -24,6 +24,9 @@ Changed
 - Rename the space monitor executable from ``hrcs`` to ``hrcm``. Update
   installation commands and service PATHs; the Ansible install role removes
   the obsolete ``hrcs`` binary.
+- Use inherited control descriptors instead of filesystem sockets for monitor,
+  queue and worker RPC. Pass read/write fd or handle values as two positional
+  arguments; keep standard input, output and error independent of the protocol.
 - Centralize shared local RPC limits and lifecycle, cleanup, retry and secret
   command timeouts in ``internal/config``.
 - Reduce the per-message local gRPC limit from 64 MiB to 256 KiB in both
