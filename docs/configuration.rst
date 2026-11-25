@@ -119,8 +119,22 @@ is not started. The supported implementations are host spaces and process-group 
 ``resources`` is the space budget, and pool ``quota`` is the allocation per slot.
 An omitted budget dimension uses the full host capacity.
 Space budgets must fit together within that capacity. Values are fixed until
-restart. The optional ``dir`` defaults to ``directories.spaces/ID``; slots live under
-its ``slots/`` directory. ``ephemeral`` in the slot pool defaults to false (reusable slots). Set it to true to
+restart. The optional ``dir`` defaults to ``directories.spaces/ID``. The monitor
+uses its working directory as the space root and prepares ``cache/``, ``tmp/``,
+``log/slots/``, ``log/jobs/``, and ``slots/``. Each slot has ``home/``, ``cache/``,
+``tmp/``, and ``work/`` under ``slots/NAME/``; workers start in ``work/``.
+Slot names have the form ``slt-N-XXXXXX``. At startup the monitor clears
+``tmp/`` and old ``slots/``; before each job it clears that slot's ``tmp/``.
+Space cache and logs survive these cleanups. Job diagnostics go to
+``log/jobs/JOB_ID/``; ``log/slots/NAME/`` survives slot destruction.
+
+Workers inherit ``HRC_VERSION``, ``HRC_SPACE_TYPE``, ``HRC_SLOT_TYPE``, and
+absolute paths in ``HRC_SPACE_DIR_CACHE``, ``HRC_SPACE_DIR_LOG``,
+``HRC_SPACE_DIR_TMP``, ``HRC_SLOT_DIR_CACHE``, ``HRC_SLOT_DIR_LOG``, and
+``HRC_SLOT_DIR_TMP``. These describe the layout; they do not yet change
+``HOME``, XDG directories, or the runner's temporary directory.
+
+``ephemeral`` in the slot pool defaults to false (reusable slots). Set it to true to
 destroy each slot after its Run. The current space type is ``host`` and slot
 type is ``pgroup``; these are also the defaults when omitted.
 

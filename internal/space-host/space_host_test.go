@@ -17,13 +17,13 @@ import (
 	"dimidiumlabs.io/hrc/internal/space"
 )
 
-// The child implements only the scheduler wire contract, with no slots or provider.
+// The child implements only the monitor wire contract, with no slots or provider.
 func TestMain(m *testing.M) {
 	if len(os.Args) >= 2 && os.Args[1] == "space-test-exit" {
 		os.Exit(12)
 	}
 	if len(os.Args) == 4 && os.Args[1] == "space-test-stall" {
-		if err := os.WriteFile("scheduler-started", []byte("anonymous"), 0600); err != nil {
+		if err := os.WriteFile("monitor-started", []byte("anonymous"), 0600); err != nil {
 			os.Exit(10)
 		}
 		time.Sleep(time.Hour) // Started, but never connects to the controller.
@@ -194,7 +194,7 @@ func TestLazyStartupAndLifecycle(t *testing.T) {
 		t.Fatalf("canceled submission to ready space: %v", err)
 	}
 	if s.Status() != space.Ready || s.child != process {
-		t.Fatal("canceled submission changed a ready scheduler")
+		t.Fatal("canceled submission changed a ready monitor")
 	}
 	if err := s.Destroy(); err != nil {
 		t.Fatal(err)
@@ -272,18 +272,18 @@ func TestCanceledStartupCleansUpBeforeIdle(t *testing.T) {
 	var started []byte
 	for {
 		var err error
-		started, err = os.ReadFile(filepath.Join(s.Cwd(), "scheduler-started"))
+		started, err = os.ReadFile(filepath.Join(s.Cwd(), "monitor-started"))
 		if err == nil && len(started) != 0 {
 			break
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatal("scheduler did not start")
+			t.Fatal("monitor did not start")
 		case <-time.After(time.Millisecond):
 		}
 	}
 	if s.Status() != space.Starting {
-		t.Fatal("uninitialized scheduler did not report Starting")
+		t.Fatal("uninitialized monitor did not report Starting")
 	}
 	cancel()
 	if err := <-completed; !errors.Is(err, context.Canceled) {
@@ -384,7 +384,7 @@ func TestDisconnectDelegatesCleanup(t *testing.T) {
 	if err := <-lost.Done(); !errors.Is(err, space.ErrUnavailable) {
 		t.Fatalf("lost Run: %v", err)
 	}
-	// No Run or Destroy call should be needed to reclaim the dead scheduler.
+	// No Run or Destroy call should be needed to reclaim the dead monitor.
 	for {
 		s.mu.Lock()
 		clean := s.child == nil
@@ -399,7 +399,7 @@ func TestDisconnectDelegatesCleanup(t *testing.T) {
 		}
 	}
 	if !childExited(process) || s.Status() != space.Broken {
-		t.Fatal("disconnect cleanup did not reap the scheduler or preserve Broken")
+		t.Fatal("disconnect cleanup did not reap the monitor or preserve Broken")
 	}
 	var exitErr *runtime.ExitError
 	if !errors.As(s.Err(), &exitErr) || exitErr.ExitCode() != 12 {
@@ -418,11 +418,11 @@ func TestDisconnectDelegatesCleanup(t *testing.T) {
 	replacement := s.child
 	s.Disconnected(generation) // A delayed old notification must be harmless.
 	if s.Status() != space.Ready || s.child != replacement {
-		t.Fatal("stale disconnect cleaned up the replacement scheduler")
+		t.Fatal("stale disconnect cleaned up the replacement monitor")
 	}
 }
 
-func TestLostSchedulerFailsRunsAndRestarts(t *testing.T) {
+func TestLostMonitorFailsRunsAndRestarts(t *testing.T) {
 	for _, kind := range []string{"disconnect", "crash", "transport"} {
 		t.Run(kind, func(t *testing.T) {
 			s := testSpace(t)
@@ -469,7 +469,7 @@ func TestLostSchedulerFailsRunsAndRestarts(t *testing.T) {
 			for s.Status() != space.Broken {
 				select {
 				case <-ctx.Done():
-					t.Fatal("failed scheduler not reflected in status")
+					t.Fatal("failed monitor not reflected in status")
 				case <-time.After(time.Millisecond):
 				}
 			}
@@ -489,7 +489,7 @@ func TestLostSchedulerFailsRunsAndRestarts(t *testing.T) {
 				t.Fatalf("replacement Run: %v %q", result, data)
 			}
 			if s.child == oldProcess {
-				t.Fatal("scheduler generation was not replaced")
+				t.Fatal("monitor generation was not replaced")
 			}
 			if state, err := s.State(ctx); err != nil || state.Running != 0 || s.Status() != space.Ready {
 				t.Fatalf("replacement state (lost job must not be replayed): %+v %v", state, err)

@@ -13,6 +13,82 @@ import (
 	"time"
 )
 
+// Connection is a control transport with lifecycle notification. Done closes
+// on a read error (including EOF) or an explicit Close. It does not monitor the
+// peer independently: the protocol must read the connection to detect loss.
+// Process exit alone does not close Done or discard buffered transport data.
+type Connection interface {
+	net.Conn
+	Done() <-chan struct{}
+	// Listener adapts this connection for servers accepting a net.Listener.
+	// It accepts once; closing the listener also closes the connection.
+	Listener() net.Listener
+}
+
+var _ net.Listener = (*singleListener)(nil)
+
+// WatchConnection adds lifecycle notification to an existing transport.
+// Connections already implementing the contract are returned unchanged.
+func WatchConnection(conn net.Conn) Connection {
+	if watched, ok := conn.(Connection); ok {
+		return watched
+	}
+	return &watchedConnection{Conn: conn, done: make(chan struct{})}
+}
+
+type watchedConnection struct {
+	net.Conn
+	once sync.Once
+	done chan struct{}
+}
+
+func (c *watchedConnection) Done() <-chan struct{} { return c.done }
+func (c *watchedConnection) Listener() net.Listener {
+	return &singleListener{conn: c, done: make(chan struct{})}
+}
+func (c *watchedConnection) Read(data []byte) (int, error) {
+	n, err := c.Conn.Read(data)
+	if err != nil {
+		c.once.Do(func() { close(c.done) })
+	}
+	return n, err
+}
+func (c *watchedConnection) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(func() { close(c.done) })
+	return err
+}
+
+type singleListener struct {
+	conn             Connection
+	accepted, closed sync.Once
+	done             chan struct{}
+	err              error
+}
+
+func (l *singleListener) Accept() (net.Conn, error) {
+	select {
+	case <-l.done:
+		return nil, net.ErrClosed
+	default:
+	}
+	var conn net.Conn
+	l.accepted.Do(func() { conn = l.conn })
+	if conn != nil {
+		return conn, nil
+	}
+	<-l.done
+	return nil, net.ErrClosed
+}
+func (l *singleListener) Close() error {
+	l.closed.Do(func() {
+		l.err = l.conn.Close()
+		close(l.done)
+	})
+	return l.err
+}
+func (l *singleListener) Addr() net.Addr { return l.conn.LocalAddr() }
+
 // anonymousConnection prefers a socketpair, falling back only when unavailable.
 func anonymousConnection() (net.Conn, *os.File, *os.File, error) {
 	conn, child, err := socketPair()
@@ -42,7 +118,7 @@ func pipeConnection() (net.Conn, *os.File, *os.File, error) {
 // InheritedConnection takes ownership of the read and write fd/handle values
 // supplied as the child's final two positional arguments. Stdio is untouched.
 // The endpoints are made non-inheritable before returning to the caller.
-func InheritedConnection(args []string) (net.Conn, error) {
+func InheritedConnection(args []string) (Connection, error) {
 	if len(args) != 2 {
 		return nil, fmt.Errorf("%w: expected read and write descriptors", os.ErrInvalid)
 	}
@@ -74,11 +150,15 @@ func InheritedConnection(args []string) (net.Conn, error) {
 		return nil, err
 	}
 	conn, err := inheritedSocket(input)
-	if err != nil || conn != nil {
+	if err != nil {
 		closeFiles()
-		return conn, err
+		return nil, err
 	}
-	return &fileConnection{reader: input, writer: output}, nil
+	if conn != nil {
+		closeFiles()
+		return WatchConnection(conn), nil
+	}
+	return WatchConnection(&fileConnection{reader: input, writer: output}), nil
 }
 
 type fileConnection struct {

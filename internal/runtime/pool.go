@@ -82,7 +82,7 @@ func launchChild(ctx context.Context, spec ChildSpec, p *Pool) (child *Child, er
 		if output != input {
 			defer output.Close()
 		}
-		c.conn = conn
+		c.conn = WatchConnection(conn)
 		command.files = []*os.File{input, output}
 	}
 	if err := c.startProcess(startup, command); err != nil {

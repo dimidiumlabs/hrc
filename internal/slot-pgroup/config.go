@@ -8,10 +8,9 @@ import (
 	"fmt"
 )
 
-// Config describes a pool of process slots and its workspace directory.
+// Config describes a pool of process slots rooted in the space.
 type Config struct {
 	config.Slot
-	Dir string `json:"dir"`
 }
 
 func (c *Config) Validate() error {

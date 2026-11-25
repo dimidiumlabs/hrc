@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os/exec"
 	"sync"
 	"time"
@@ -37,7 +36,7 @@ type Child struct {
 	input         io.WriteCloser
 	pipes         []io.ReadWriteCloser
 	waitErr       error
-	conn          net.Conn
+	conn          Connection
 	code          int
 	exitErr       error
 	closeMu       sync.Mutex
@@ -51,8 +50,8 @@ type ExitError struct{ Code int }
 func (e *ExitError) Error() string { return fmt.Sprintf("child exited with status %d", e.Code) }
 func (e *ExitError) ExitCode() int { return e.Code }
 
-func (c *Child) Connection() net.Conn  { <-c.started; return c.conn }
-func (c *Child) Done() <-chan struct{} { return c.done }
+func (c *Child) Connection() Connection { <-c.started; return c.conn }
+func (c *Child) Done() <-chan struct{}  { return c.done }
 func (c *Child) Err() error {
 	select {
 	case <-c.done:

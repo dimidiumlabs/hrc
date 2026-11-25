@@ -61,7 +61,7 @@ func launchQueue(ctx context.Context, command []string, pool *runtime.Pool) (*qu
 		cancel()
 		return nil, err
 	}
-	go p.server.Serve(&providerListener{conn: p.child.Connection(), done: make(chan struct{})})
+	go p.server.Serve(p.child.Connection().Listener())
 	select {
 	case <-p.ready:
 		return p, nil

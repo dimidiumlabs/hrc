@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"dimidiumlabs.io/hrc/internal/provider"
+	"dimidiumlabs.io/hrc/internal/runtime"
 	"dimidiumlabs.io/hrc/internal/slot"
 	"dimidiumlabs.io/hrc/internal/space"
 )
@@ -38,7 +39,7 @@ func (j *testJob) Unmarshal(data []byte) error {
 	return nil
 }
 
-// Runs and slots are test doubles: scheduler tests need no OS processes or paths.
+// Runs and slots are test doubles: monitor tests need no OS processes or paths.
 type testRun struct {
 	done   chan error
 	ready  chan struct{}
@@ -66,7 +67,7 @@ func (r *testRun) Stop(context.Context, provider.StopReason) error {
 
 type executionSlot struct {
 	slot.Slot
-	harness *schedulerHarness
+	harness *monitorHarness
 	name    string
 	active  atomic.Bool
 	closed  atomic.Bool
@@ -113,7 +114,7 @@ func (s *executionSlot) Destroy(context.Context) error {
 	return nil
 }
 
-type schedulerHarness struct {
+type monitorHarness struct {
 	client             *space.Daemon
 	done               chan error
 	created, destroyed atomic.Int32
@@ -121,32 +122,40 @@ type schedulerHarness struct {
 	once               sync.Once
 }
 
-func (h *schedulerHarness) close() {
+func (h *monitorHarness) close() {
 	h.once.Do(func() { h.client.Close(); <-h.done })
 }
-func newSchedulerHarness(t *testing.T, reuse bool) *schedulerHarness {
+func newMonitorHarness(t *testing.T, reuse bool) *monitorHarness {
 	t.Helper()
-	h := &schedulerHarness{done: make(chan error, 1), started: make(chan string, 10)}
+	h := &monitorHarness{done: make(chan error, 1), started: make(chan string, 10)}
 	server, client := net.Pipe()
 	config := &space.Config{Capacity: 1, Ephemeral: !reuse}
 	go func() {
-		h.done <- serve(t.Context(), server, func(config *space.Config) (*scheduler, error) {
-			s, err := newScheduler(int(config.Capacity), !config.Ephemeral, func(_ context.Context, name string) (slot.Slot, error) {
-				h.created.Add(1)
-				return &executionSlot{harness: h, name: name}, nil
-			})
-			if err != nil {
-				return nil, err
-			}
-			s.decode = func(name string, data []byte) (provider.Job, error) {
-				if name != "test" {
-					return nil, slot.ErrProviderUnavailable
-				}
-				job := &testJob{}
-				return job, job.Unmarshal(data)
-			}
-			return s, nil
+		r := newRPC(runtime.WatchConnection(server))
+		defer r.Close()
+		if err := r.Handshake(t.Context()); err != nil {
+			h.done <- err
+			return
+		}
+		s, err := newSlotMonitor(int(r.config.Capacity), !r.config.Ephemeral, func(_ context.Context, name string) (slot.Slot, error) {
+			h.created.Add(1)
+			return &executionSlot{harness: h, name: name}, nil
 		})
+		if err != nil {
+			h.done <- err
+			return
+		}
+		s.rpc = r
+		s.decode = func(name string, data []byte) (provider.Job, error) {
+			if name != "test" {
+				return nil, slot.ErrProviderUnavailable
+			}
+			job := &testJob{}
+			return job, job.Unmarshal(data)
+		}
+		err = s.Serve(t.Context())
+		r.Close()
+		h.done <- errors.Join(err, s.close())
 	}()
 	var err error
 	h.client, err = space.NewDaemon(t.Context(), client, config)
@@ -156,7 +165,7 @@ func newSchedulerHarness(t *testing.T, reuse bool) *schedulerHarness {
 	t.Cleanup(h.close)
 	return h
 }
-func (h *schedulerHarness) start(t *testing.T, payload []byte) provider.Run {
+func (h *monitorHarness) start(t *testing.T, payload []byte) provider.Run {
 	t.Helper()
 	run, err := h.client.Start(t.Context(), "test", payload)
 	if err != nil {
@@ -164,7 +173,7 @@ func (h *schedulerHarness) start(t *testing.T, payload []byte) provider.Run {
 	}
 	return run
 }
-func (h *schedulerHarness) awaitState(t *testing.T, want space.State) {
+func (h *monitorHarness) awaitState(t *testing.T, want space.State) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -182,8 +191,8 @@ func (h *schedulerHarness) awaitState(t *testing.T, want space.State) {
 	}
 }
 
-func TestSchedulerIPCStateAndQueuedCancellation(t *testing.T) {
-	h := newSchedulerHarness(t, true)
+func TestMonitorIPCStateAndQueuedCancellation(t *testing.T) {
+	h := newMonitorHarness(t, true)
 	h.awaitState(t, space.State{Capacity: 1})
 	first := h.start(t, []byte(`{"Mode":"wait"}`))
 	<-h.started
@@ -211,10 +220,10 @@ func TestSchedulerIPCStateAndQueuedCancellation(t *testing.T) {
 	}
 }
 
-func TestSchedulerDestroysCrashedSlot(t *testing.T) {
+func TestMonitorDestroysCrashedSlot(t *testing.T) {
 	for _, reuse := range []bool{false, true} {
 		t.Run(fmt.Sprint("reuse=", reuse), func(t *testing.T) {
-			h := newSchedulerHarness(t, reuse)
+			h := newMonitorHarness(t, reuse)
 			failed := h.start(t, []byte(`{"Mode":"crash"}`))
 			<-h.started
 			if _, _, err := waitRun(failed); !errors.Is(err, provider.ErrUnknown) {
@@ -236,9 +245,9 @@ func TestSchedulerDestroysCrashedSlot(t *testing.T) {
 	}
 }
 
-func TestSchedulerIPCPayloadAndReuse(t *testing.T) {
+func TestMonitorIPCPayloadAndReuse(t *testing.T) {
 	for _, reuse := range []bool{false, true} {
-		h := newSchedulerHarness(t, reuse)
+		h := newMonitorHarness(t, reuse)
 		payload := []byte(`{"Mode":"success", "future":"Привет 🌍"}`)
 		var previous string
 		for i := 0; i < 2; i++ {
@@ -266,8 +275,8 @@ func TestSchedulerIPCPayloadAndReuse(t *testing.T) {
 	}
 }
 
-func TestSchedulerIPCRejectsJobsBeforeCreatingSlots(t *testing.T) {
-	h := newSchedulerHarness(t, false)
+func TestMonitorIPCRejectsJobsBeforeCreatingSlots(t *testing.T) {
+	h := newMonitorHarness(t, false)
 	run, err := h.client.Start(t.Context(), "missing-provider", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -288,10 +297,10 @@ func TestSchedulerIPCRejectsJobsBeforeCreatingSlots(t *testing.T) {
 	}
 }
 
-func TestSchedulerIPCDisconnectStopsExecution(t *testing.T) {
+func TestMonitorIPCDisconnectStopsExecution(t *testing.T) {
 	for _, reuse := range []bool{false, true} {
 		t.Run(fmt.Sprint("reuse=", reuse), func(t *testing.T) {
-			h := newSchedulerHarness(t, reuse)
+			h := newMonitorHarness(t, reuse)
 			active := h.start(t, []byte(`{"Mode":"wait"}`))
 			<-h.started
 			queued := h.start(t, []byte(`{"Mode":"wait"}`))
@@ -309,8 +318,8 @@ func TestSchedulerIPCDisconnectStopsExecution(t *testing.T) {
 	}
 }
 
-func TestSchedulerIPCDisconnectDestroysIdleSlots(t *testing.T) {
-	h := newSchedulerHarness(t, true)
+func TestMonitorIPCDisconnectDestroysIdleSlots(t *testing.T) {
+	h := newMonitorHarness(t, true)
 	run := h.start(t, []byte(`{"Mode":"success"}`))
 	<-h.started
 	if result, _, err := waitRun(run); err != nil || result != provider.Succeeded {
@@ -349,7 +358,7 @@ func (r *cancelRaceRun) Stop(_ context.Context, reason provider.StopReason) erro
 
 func TestCancellationRacingWithCompletionPreservesOutcome(t *testing.T) {
 	created := make(chan struct{})
-	s, err := newScheduler(1, true, func(context.Context, string) (slot.Slot, error) {
+	s, err := newSlotMonitor(1, true, func(context.Context, string) (slot.Slot, error) {
 		return &raceSlot{created: created}, nil
 	})
 	if err != nil {
@@ -399,7 +408,7 @@ func (s *testSlot) Destroy(context.Context) error { s.closed.Add(1); return nil 
 func TestCapacityAndReuse(t *testing.T) {
 	for _, reuse := range []bool{false, true} {
 		var created atomic.Int32
-		s, err := newScheduler(1, reuse, func(context.Context, string) (slot.Slot, error) {
+		s, err := newSlotMonitor(1, reuse, func(context.Context, string) (slot.Slot, error) {
 			created.Add(1)
 			return &testSlot{}, nil
 		})
@@ -464,7 +473,7 @@ func TestPreparationCancellationAndFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	instance := &testSlot{}
 	attempts := 0
-	s, err := newScheduler(1, true, func(context.Context, string) (slot.Slot, error) {
+	s, err := newSlotMonitor(1, true, func(context.Context, string) (slot.Slot, error) {
 		attempts++
 		if attempts == 1 {
 			cancel()

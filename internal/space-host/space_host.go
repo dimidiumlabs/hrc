@@ -42,8 +42,8 @@ var (
 
 // New prepares configuration only. Run launches hrcm on the first Job.
 func New(name, root string, command []string, config *space.Config, pool *runtime.Pool) (*SpaceHost, error) {
-	if name == "" || root == "" || len(command) == 0 {
-		return nil, fmt.Errorf("%w: space name, root and monitor command are required", space.ErrInvalidConfig)
+	if name == "" || root == "" || len(command) == 0 || config == nil {
+		return nil, fmt.Errorf("%w: space name, root, monitor command and configuration are required", space.ErrInvalidConfig)
 	}
 
 	root, err := filepath.Abs(root)
@@ -65,6 +65,7 @@ func New(name, root string, command []string, config *space.Config, pool *runtim
 		args:    command,
 		pool:    pool,
 	}
+	space.config.SpaceType = space.Type()
 	space.Daemon.Delegate = &space
 	return &space, nil
 }
@@ -124,6 +125,7 @@ func (s *SpaceHost) connect(ctx context.Context) error {
 // start launches a monitor after connect has retired the previous generation.
 // The caller holds s.mu and handles lifecycle status and error classification.
 func (s *SpaceHost) start(ctx context.Context) error {
+	// Only the launch cwd is created here; hrcm prepares the space contents.
 	if err := os.MkdirAll(s.rootDir, 0700); err != nil {
 		return err
 	}

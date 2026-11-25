@@ -14,6 +14,7 @@ import (
 
 	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
+	"dimidiumlabs.io/hrc/internal/runtime"
 	"google.golang.org/grpc"
 )
 
@@ -51,8 +52,8 @@ type daemonState struct {
 type daemonConnection struct {
 	owner     *Daemon
 	conn      *grpc.ClientConn
-	rpc       SchedulerClient
-	transport net.Conn
+	rpc       MonitorClient
+	transport runtime.Connection
 	done      chan struct{}
 	once      sync.Once
 }
@@ -112,20 +113,20 @@ func NewDaemon(ctx context.Context, conn net.Conn, config *Config) (*Daemon, err
 func (c *Daemon) Connect(ctx context.Context, conn net.Conn, config *Config) error {
 	c.Close()
 	c.SetStatus(Starting, nil)
-	watched := &watchedConn{Conn: conn, done: make(chan struct{})}
+	watched := runtime.WatchConnection(conn)
 	connection, err := dial(watched)
 	if err != nil {
 		conn.Close()
 		c.SetStatus(Broken, fmt.Errorf("%w: %w", ErrUnavailable, err))
 		return err
 	}
-	generation := &daemonConnection{owner: c, conn: connection, rpc: NewSchedulerClient(connection), transport: watched, done: make(chan struct{})}
+	generation := &daemonConnection{owner: c, conn: connection, rpc: NewMonitorClient(connection), transport: watched, done: make(chan struct{})}
 	initial := &daemonState{status: Starting, connection: generation}
 	c.state.Store(initial)
 	delegate := c.Delegate
 	go func() {
 		select {
-		case <-watched.done:
+		case <-watched.Done():
 			generation.abort(net.ErrClosed)
 			if delegate != nil {
 				delegate.Disconnected(generation.done)

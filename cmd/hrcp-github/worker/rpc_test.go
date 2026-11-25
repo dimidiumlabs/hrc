@@ -260,9 +260,13 @@ func TestWorkerEnvironmentInheritance(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Second)
 	defer cancel()
-	// The C# fixture runs the real adapter, then launches another copy of
-	// itself with ordinary environment inheritance and validates both processes.
-	child, err := provider.LaunchWorker(ctx, runtime.Command{Path: path, Args: []string{"--worker-env"}}, &runtime.Pool{})
+	// The C# fixture runs the real adapter and validates that applying worker
+	// configuration preserves the environment inherited from the monitor.
+	logs := t.TempDir()
+	child, err := provider.LaunchWorker(ctx, runtime.Command{
+		Path: path, Args: []string{"--worker-env"},
+		Env: append(os.Environ(), "HRC_SPACE_DIR_LOG="+logs),
+	}, &runtime.Pool{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,8 +278,7 @@ func TestWorkerEnvironmentInheritance(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	logs := t.TempDir()
-	config, _ := json.Marshal(map[string]any{"Dir": resources, "LogRoot": logs, "Env": []string{"HRC_TEST_USER=explicit"}})
+	config, _ := json.Marshal(map[string]any{"Dir": resources, "Env": []string{"HRC_TEST_USER=explicit"}})
 	if err := child.Send(&provider.TaskCommand{Command: &provider.TaskCommand_Start{Start: &provider.TaskStart{
 		Config: config, Payload: []byte(`{"ID":"env-test","Settings":{"agentId":7},"Job":{"resources":{}}}`),
 	}}}); err != nil {

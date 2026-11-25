@@ -74,19 +74,10 @@ type SlotConfig struct {
 	}]
 }
 
-func (c SlotConfig) executionConfig(root string) ([]byte, error) {
+func (c SlotConfig) executionConfig() ([]byte, error) {
 	switch spec := c.Value().(type) {
 	case *slotpgroup.Config:
-		config := *spec
-		if config.Dir == "" {
-			config.Dir = filepath.Join(root, "slots")
-		}
-		var err error
-		config.Dir, err = filepath.Abs(config.Dir)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(config)
+		return json.Marshal(spec)
 	default:
 		return nil, errors.New("unsupported slot configuration")
 	}
@@ -109,7 +100,7 @@ func (c SpaceConfig) NewSpace(dirs Directories, pool SlotConfig, capacity int, p
 		if err != nil {
 			return nil, err
 		}
-		slotConfig, err := pool.executionConfig(root)
+		slotConfig, err := pool.executionConfig()
 		if err != nil {
 			return nil, err
 		}
@@ -132,11 +123,7 @@ func executionConfigs(dirs Directories) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	logs, err := filepath.Abs(dirs.Logs)
-	if err != nil {
-		return nil, err
-	}
-	settings, err := json.Marshal(struct{ Dir, LogRoot string }{runtime, logs})
+	settings, err := json.Marshal(struct{ Dir string }{runtime})
 	if err != nil {
 		return nil, err
 	}

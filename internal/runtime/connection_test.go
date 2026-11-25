@@ -14,6 +14,44 @@ import (
 	"time"
 )
 
+func TestConnectionDone(t *testing.T) {
+	for _, remote := range []bool{false, true} {
+		left, right := net.Pipe()
+		conn := WatchConnection(left)
+		if WatchConnection(conn) != conn {
+			t.Fatal("connection was wrapped twice")
+		}
+		select {
+		case <-conn.Done():
+			t.Fatal("new connection is already done")
+		default:
+		}
+		listener := conn.Listener()
+		if accepted, err := listener.Accept(); err != nil || accepted != conn {
+			t.Fatalf("listener did not return its connection: %v %v", accepted, err)
+		}
+		if remote {
+			right.Close()
+			if _, err := conn.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+				t.Fatalf("peer close: %v", err)
+			}
+		} else {
+			listener.Close()
+		}
+		select {
+		case <-conn.Done():
+		default:
+			t.Fatal("transport loss did not close Done")
+		}
+		listener.Close()
+		if accepted, err := listener.Accept(); accepted != nil || !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("closed listener accepted a connection: %v %v", accepted, err)
+		}
+		conn.Close()
+		right.Close()
+	}
+}
+
 func TestAnonymousChild(t *testing.T) {
 	var pool Pool
 	child, err := pool.Start(t.Context(), ChildSpec{

@@ -42,6 +42,7 @@ go_test(
     deps = [
         "//internal/config",
         "//internal/provider",
+        "//internal/runtime",
         "//internal/slot",
         "//internal/space",
         "@org_golang_google_grpc//:grpc",

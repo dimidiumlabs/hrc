@@ -33,26 +33,3 @@ func dial(conn net.Conn) (*grpc.ClientConn, error) {
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(hrcconfig.GRPCMaxMessageSize), grpc.MaxCallSendMsgSize(hrcconfig.GRPCMaxMessageSize)),
 	)
 }
-
-// Closing the transport ends this monitor generation, including idle periods.
-type watchedConn struct {
-	net.Conn
-	once sync.Once
-	done chan struct{}
-}
-
-var _ net.Conn = (*watchedConn)(nil)
-
-func (c *watchedConn) Read(data []byte) (int, error) {
-	n, err := c.Conn.Read(data)
-	if err != nil {
-		c.once.Do(func() { close(c.done) })
-	}
-	return n, err
-}
-
-func (c *watchedConn) Close() error {
-	err := c.Conn.Close()
-	c.once.Do(func() { close(c.done) })
-	return err
-}

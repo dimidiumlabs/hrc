@@ -24,6 +24,22 @@ type controlledRun struct {
 	err    error
 }
 
+type testEnvironment string
+
+func newTestEnvironment(t *testing.T) testEnvironment {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "slot")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return testEnvironment(dir)
+}
+func (f testEnvironment) Name() string          { return filepath.Base(string(f)) }
+func (f testEnvironment) Cwd() string           { return string(f) }
+func (f testEnvironment) Environment() []string { return nil }
+func (f testEnvironment) Prepare() error        { return nil }
+func (f testEnvironment) Destroy() error        { return os.RemoveAll(string(f)) }
+
 type testJob struct{}
 
 func (*testJob) Type() string             { return "test" }
@@ -49,7 +65,7 @@ func (r *controlledRun) Stop(context.Context, provider.StopReason) error {
 
 func TestSlotOwnsSuccessiveRuns(t *testing.T) {
 	var children []*controlledRun
-	s, err := newSlot(filepath.Join(t.TempDir(), "slot"), func(context.Context, *Slot, provider.Job) (provider.Run, error) {
+	s, err := newSlot(newTestEnvironment(t), func(context.Context, *Slot, provider.Job) (provider.Run, error) {
 		r := &controlledRun{done: make(chan error, 1)}
 		children = append(children, r)
 		return r, nil
@@ -131,7 +147,7 @@ func TestSlotOwnsSuccessiveRuns(t *testing.T) {
 
 func TestDestroyInterruptsPreparation(t *testing.T) {
 	entered := make(chan struct{})
-	s, err := newSlot(filepath.Join(t.TempDir(), "slot"), func(ctx context.Context, _ *Slot, _ provider.Job) (provider.Run, error) {
+	s, err := newSlot(newTestEnvironment(t), func(ctx context.Context, _ *Slot, _ provider.Job) (provider.Run, error) {
 		close(entered)
 		<-ctx.Done()
 		return nil, ctx.Err()
@@ -159,7 +175,7 @@ func TestDestroyInterruptsPreparation(t *testing.T) {
 
 func TestStopPreservesDoneError(t *testing.T) {
 	failure := errors.New("execution failed")
-	s, err := newSlot(filepath.Join(t.TempDir(), "slot"), func(context.Context, *Slot, provider.Job) (provider.Run, error) {
+	s, err := newSlot(newTestEnvironment(t), func(context.Context, *Slot, provider.Job) (provider.Run, error) {
 		return &controlledRun{done: make(chan error, 1), err: failure}, nil
 	})
 	if err != nil {
@@ -190,7 +206,7 @@ func TestStopPreservesDoneError(t *testing.T) {
 }
 
 func TestUnsupportedWorker(t *testing.T) {
-	target, err := New(filepath.Join(t.TempDir(), "slot"), nil, nil)
+	target, err := New(newTestEnvironment(t), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

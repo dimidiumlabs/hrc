@@ -5,24 +5,17 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
-	"dimidiumlabs.io/hrc/internal/space"
-
 	hrcconfig "dimidiumlabs.io/hrc/internal/config"
-	"dimidiumlabs.io/hrc/internal/provider"
 	"dimidiumlabs.io/hrc/internal/runtime"
-	"dimidiumlabs.io/hrc/internal/slot"
-	slotpgroup "dimidiumlabs.io/hrc/internal/slot-pgroup"
 )
 
 var (
@@ -51,54 +44,35 @@ func main() {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	conn, err := runtime.InheritedConnection(flag.Args())
-	if err == nil {
-		err = serve(ctx, conn, func(cfg *space.Config) (*scheduler, error) { return configure(cfg, nil) })
-	}
-	if err != nil {
+	if err := serve(ctx, flag.Args()); err != nil {
 		slog.Error("Monitor stopped", "err", err)
 		os.Exit(1)
 	}
 }
 
-func configure(config *space.Config, create func(string) (slot.Slot, error)) (*scheduler, error) {
-	if config.Slot != "pgroup" {
-		return nil, fmt.Errorf("unknown slot implementation %q", config.Slot)
-	}
-	var slotConfig slotpgroup.Config
-	if err := json.Unmarshal(config.SlotConfig, &slotConfig); err != nil || slotConfig.Dir == "" {
-		return nil, errors.New("pgroup root is required")
-	}
-	providers := make(map[string]provider.ProcessConfig, len(config.Providers))
-	for name, data := range config.Providers {
-		var cfg provider.ProcessConfig
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			return nil, err
-		}
-		if err := cfg.Validate(); err != nil {
-			return nil, fmt.Errorf("provider %q: %w", name, err)
-		}
-		providers[name] = cfg
-	}
-	pool := &runtime.Pool{}
-	if create == nil {
-		create = func(dir string) (slot.Slot, error) { return slotpgroup.New(dir, providers, pool) }
-	}
-	s, err := newScheduler(int(config.Capacity), !config.Ephemeral, func(ctx context.Context, name string) (slot.Slot, error) {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		return create(filepath.Join(slotConfig.Dir, name+"-"+rand.Text()))
-	})
+func serve(ctx context.Context, args []string) (err error) {
+	conn, err := runtime.InheritedConnection(args)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("Coudn't connect to admin sock: %w", err)
 	}
-	s.pool = pool
-	s.decode = func(name string, payload []byte) (provider.Job, error) {
-		if _, ok := providers[name]; !ok {
-			return nil, fmt.Errorf("%w: %s", slot.ErrProviderUnavailable, name)
+
+	r := newRPC(conn)
+	defer r.Close()
+
+	if err := r.Handshake(ctx); err != nil {
+		if errors.Is(err, net.ErrClosed) {
+			return nil
 		}
-		return &provider.OpaqueJob{Provider: name, Payload: payload}, nil
+		return err
 	}
-	return s, nil
+
+	s, err := NewMonitor(r)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		r.Close()
+		err = errors.Join(err, s.close())
+	}()
+	return s.Serve(ctx)
 }

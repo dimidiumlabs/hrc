@@ -15,25 +15,25 @@ import (
 	"google.golang.org/grpc"
 )
 
-// schedulerPeer implements only the messages needed by host lifecycle tests.
-// Production scheduler behavior is tested in cmd/hrcm.
-type schedulerPeer struct {
+// monitorPeer implements only the messages needed by host lifecycle tests.
+// Production monitor behavior is tested in cmd/hrcm.
+type monitorPeer struct {
 	capacity atomic.Uint64
 	running  atomic.Uint64
 }
 
-var _ space.SchedulerServer = (*schedulerPeer)(nil)
+var _ space.MonitorServer = (*monitorPeer)(nil)
 
-func (p *schedulerPeer) Init(_ context.Context, request *space.InitRequest) (*space.InitResponse, error) {
+func (p *monitorPeer) Init(_ context.Context, request *space.InitRequest) (*space.InitResponse, error) {
 	p.capacity.Store(request.Config.Capacity)
 	return &space.InitResponse{Version: space.Version, Capacity: p.capacity.Load()}, nil
 }
 
-func (p *schedulerPeer) Inspect(context.Context, *space.InspectRequest) (*space.Snapshot, error) {
+func (p *monitorPeer) Inspect(context.Context, *space.InspectRequest) (*space.Snapshot, error) {
 	return &space.Snapshot{Capacity: p.capacity.Load(), Running: p.running.Load()}, nil
 }
 
-func (p *schedulerPeer) Run(stream grpc.BidiStreamingServer[space.RunCommand, space.RunEvent]) error {
+func (p *monitorPeer) Run(stream grpc.BidiStreamingServer[space.RunCommand, space.RunEvent]) error {
 	command, err := stream.Recv()
 	if err != nil {
 		return err
@@ -58,7 +58,7 @@ func serveTestPeer(conn net.Conn) error {
 	watched := &peerConn{Conn: conn, done: make(chan struct{})}
 	listener := &peerListener{conn: watched, done: make(chan struct{})}
 	server := grpc.NewServer(grpc.WaitForHandlers(true))
-	space.RegisterSchedulerServer(server, &schedulerPeer{})
+	space.RegisterMonitorServer(server, &monitorPeer{})
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 	select {

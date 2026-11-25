@@ -250,7 +250,7 @@ func LaunchWorker(ctx context.Context, command runtime.Command, pool *runtime.Po
 		return nil, err
 	}
 	s.conn = s.child.Connection()
-	go s.server.Serve(&providerListener{conn: s.conn, done: make(chan struct{})})
+	go s.server.Serve(s.child.Connection().Listener())
 	select {
 	case <-s.ready:
 		return s, nil

@@ -9,8 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
-	"sync"
 
 	"dimidiumlabs.io/hrc/internal/config"
 )
@@ -49,29 +47,6 @@ func (f *Failure) Err() error {
 	}
 	return fmt.Errorf("%w: %s", ErrUnknown, f.Message)
 }
-
-// A provider process uses its one accepted socket; there is no reconnect.
-type providerListener struct {
-	conn     net.Conn
-	accepted sync.Once
-	closed   sync.Once
-	done     chan struct{}
-}
-
-func (l *providerListener) Accept() (net.Conn, error) {
-	var conn net.Conn
-	l.accepted.Do(func() { conn = l.conn })
-	if conn != nil {
-		return conn, nil
-	}
-	<-l.done
-	return nil, net.ErrClosed
-}
-func (l *providerListener) Close() error {
-	l.closed.Do(func() { l.conn.Close(); close(l.done) })
-	return nil
-}
-func (l *providerListener) Addr() net.Addr { return l.conn.LocalAddr() }
 
 // OpaqueJob is transported without decoding provider-owned bytes.
 type OpaqueJob struct {

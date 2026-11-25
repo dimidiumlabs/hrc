@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 
 	"dimidiumlabs.io/hrc/internal/provider"
@@ -16,10 +15,20 @@ import (
 	"dimidiumlabs.io/hrc/internal/slot"
 )
 
+// Environment supplies a prepared workspace and its storage lifecycle.
+// The monitor owns the layout; process slots only invoke these lifecycle hooks.
+type Environment interface {
+	Name() string
+	Cwd() string
+	Environment() []string
+	Prepare() error
+	Destroy() error
+}
+
 // Slot owns its workspace, background processes and successive Runs.
 // Worker selection and process launch are explicit implementation details.
 type Slot struct {
-	dir           string
+	environment   Environment
 	group         *runtime.Group
 	launch        func(context.Context, *Slot, provider.Job) (provider.Run, error)
 	mu            sync.Mutex
@@ -32,8 +41,8 @@ type Slot struct {
 }
 
 // New creates a process slot with trusted provider commands.
-func New(dir string, providers map[string]provider.ProcessConfig, pool *runtime.Pool) (*Slot, error) {
-	return newSlot(dir, func(ctx context.Context, target *Slot, job provider.Job) (provider.Run, error) {
+func New(environment Environment, providers map[string]provider.ProcessConfig, pool *runtime.Pool) (*Slot, error) {
+	return newSlot(environment, func(ctx context.Context, target *Slot, job provider.Job) (provider.Run, error) {
 		config, ok := providers[job.Type()]
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", slot.ErrProviderUnavailable, job.Type())
@@ -43,30 +52,23 @@ func New(dir string, providers map[string]provider.ProcessConfig, pool *runtime.
 			return nil, err
 		}
 		return provider.StartWorker(ctx, config, payload, runtime.Command{
-			Group: target.group, Dir: target.dir, Stdout: os.Stdout, Stderr: os.Stderr,
+			Group: target.group, Dir: target.Cwd(), Env: target.environment.Environment(),
+			Stdout: os.Stdout, Stderr: os.Stderr,
 		}, pool)
 	})
 }
 
-func newSlot(dir string, launch func(context.Context, *Slot, provider.Job) (provider.Run, error)) (*Slot, error) {
-	dir, err := filepath.Abs(dir)
-	if err != nil {
-		return nil, errors.Join(slot.ErrPrepare, err)
-	}
+func newSlot(environment Environment, launch func(context.Context, *Slot, provider.Job) (provider.Run, error)) (*Slot, error) {
 	group, err := runtime.NewGroup()
 	if err != nil {
 		return nil, errors.Join(slot.ErrPrepare, err)
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, errors.Join(slot.ErrPrepare, err, group.Close())
-	}
-	return &Slot{dir: dir, group: group, launch: launch, status: slot.Idle}, nil
+	return &Slot{environment: environment, group: group, launch: launch, status: slot.Idle}, nil
 }
-func (s *Slot) Name() string                { return filepath.Base(s.dir) }
-func (s *Slot) Cwd() string                 { return s.dir }
-func (*Slot) Type() string                  { return "pgroup" }
-func (s *Slot) Path(parts ...string) string { return filepath.Join(parts...) }
-func (s *Slot) Status() slot.Status         { s.mu.Lock(); defer s.mu.Unlock(); return s.status }
+func (s *Slot) Name() string        { return s.environment.Name() }
+func (s *Slot) Cwd() string         { return s.environment.Cwd() }
+func (*Slot) Type() string          { return "pgroup" }
+func (s *Slot) Status() slot.Status { s.mu.Lock(); defer s.mu.Unlock(); return s.status }
 
 func (s *Slot) Run(ctx context.Context, job provider.Job) (provider.Run, error) {
 	s.mu.Lock()
@@ -88,7 +90,19 @@ func (s *Slot) Run(ctx context.Context, job provider.Job) (provider.Run, error) 
 	s.preparing = make(chan struct{})
 	s.prepareCancel = cancel
 	s.mu.Unlock()
-	local, err := s.launch(ctx, s, job)
+	var local provider.Run
+	err := ctx.Err()
+	if err == nil {
+		err = s.environment.Prepare()
+		if err != nil {
+			err = errors.Join(slot.ErrPrepare, err)
+		}
+	}
+	if err == nil {
+		if err = ctx.Err(); err == nil {
+			local, err = s.launch(ctx, s, job)
+		}
+	}
 	s.mu.Lock()
 	if err == nil {
 		err = ctx.Err()
@@ -191,7 +205,7 @@ func (s *Slot) Destroy(ctx context.Context) error {
 		}
 	}
 	s.destroyOnce.Do(func() {
-		s.destroyErr = errors.Join(s.group.Close(), os.RemoveAll(s.dir))
+		s.destroyErr = errors.Join(s.group.Close(), s.environment.Destroy())
 		if s.destroyErr != nil {
 			s.destroyErr = errors.Join(slot.ErrUnknown, s.destroyErr)
 		} else {

@@ -262,6 +262,7 @@ namespace GitHub.Runner.Worker
                 settings.DisableUpdate = true;
                 if (string.IsNullOrEmpty(settings.AgentName)) settings.AgentName = Environment.MachineName;
                 string logs = options.LogRoot;
+                if (string.IsNullOrEmpty(logs)) logs = Environment.GetEnvironmentVariable("HRC_SPACE_DIR_LOG");
                 if (string.IsNullOrEmpty(logs)) logs = Path.Combine(Directory.GetCurrentDirectory(), "_diag");
                 return new HostContext("Worker", settings: settings, directories: new Dictionary<WellKnownDirectory, string>
                 {
