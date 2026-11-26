@@ -12,46 +12,47 @@ import (
 
 	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
+	"dimidiumlabs.io/hrc/internal/resource"
 	"dimidiumlabs.io/hrc/internal/space"
 )
 
-type managedSpace struct {
-	environment space.Space
-	demand      provider.Demand
-}
-
-func (s *managedSpace) Close() error { return s.environment.Destroy() }
-
 func (v *Controller) Failed() <-chan struct{} { return v.failed }
 
-// Submit takes ownership of the handle, including on dispatch failure.
+// Submit starts execution. The acquired job remains in its owner's resource heap through
+// finalization, including on dispatch failure.
 func (v *Controller) Submit(job *acquiredJob) {
+	if err := v.initializeOwnership(); err != nil {
+		v.recordFailure(err)
+		job.finalization.result = provider.Abandoned
+		job.executionFinished()
+		return
+	}
 	ctx := job.ctx
 	v.mu.Lock()
 	if v.closed {
 		v.mu.Unlock()
-		err := finishUnstarted(ctx, job.handle, provider.Abandoned)
-		v.recordFailure(errors.Join(space.ErrClosed, err))
-		job.complete()
+		v.recordFailure(space.ErrClosed)
+		job.finalization.result = provider.Abandoned
+		job.executionFinished()
 		return
 	}
 	v.runTasks.Add(1)
 	v.mu.Unlock()
 	go func() {
-		defer job.complete()
 		defer v.runTasks.Done()
+		defer job.executionFinished()
 		host := v.spaces[job.space]
 		var err error
 		result := provider.Failed
 		if host == nil {
-			err = errors.Join(fmt.Errorf("unknown space %q", job.space), finishUnstarted(ctx, job.handle, result))
+			err = fmt.Errorf("unknown space %q", job.space)
+			job.finalization.result = result
 		} else {
-			result, err = runJob(ctx, job.handle, host.environment, controllerOptions{Name: job.forge}, hrcconfig.JobCancelGrace)
+			result, err = runJob(ctx, job.handle, host.environment, controllerOptions{Name: job.forge, finalization: &job.finalization}, hrcconfig.JobCancelGrace)
 		}
 		slog.Info("Job completed", "forge", job.forge, "job", job.handle.Job().ID(), "result", result.String(), "err", err)
-		// Execution and supervision errors belong to this job. runJob has
-		// stopped execution, attempted completion and released the handle.
-		// Only a dispatch invariant violation is fatal to the controller.
+		// Execution errors belong to this job. Finalization is a separate resource collection
+		// operation and may retain ownership or expand the damaged scope.
 		if host == nil {
 			v.recordFailure(fmt.Errorf("forge %q, space %q: %w", job.forge, job.space, err))
 		}
@@ -66,7 +67,10 @@ func (v *Controller) recordFailure(err error) {
 }
 
 // controllerOptions identifies the forge for execution diagnostics.
-type controllerOptions struct{ Name string }
+type controllerOptions struct {
+	Name         string
+	finalization *jobFinalization
+}
 
 // runJob keeps supervision alive through execution cleanup and completion.
 func runJob(ctx context.Context, job provider.Handle, environment space.Space, options controllerOptions, grace time.Duration) (result provider.Result, err error) {
@@ -74,19 +78,17 @@ func runJob(ctx context.Context, job provider.Handle, environment space.Space, o
 	var data []byte
 	var local provider.Run
 	defer func() {
-		if local != nil {
-			stop, cancel := context.WithTimeout(context.WithoutCancel(ctx), hrcconfig.ControlTimeout)
-			err = errors.Join(err, local.Stop(stop, provider.StopForce))
-			cancel()
-			err = errors.Join(err, <-local.Done())
-			_, data = local.Result()
+		finalization := options.finalization
+		if finalization == nil {
+			finalization = &jobFinalization{}
 		}
-		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), hrcconfig.JobFinishTimeout)
-		err = errors.Join(err, job.Finish(cleanup, result, data))
-		cancel()
-		cleanup, cancel = context.WithTimeout(context.WithoutCancel(ctx), hrcconfig.JobCloseTimeout)
-		err = errors.Join(err, job.Close(cleanup))
-		cancel()
+		finalization.handle, finalization.local = job, local
+		finalization.result, finalization.data = result, data
+		if options.finalization == nil {
+			// Standalone callers retain the synchronous lifecycle contract.
+			cleanupErr := finalization.Shutdown(context.WithoutCancel(ctx), resource.Term)
+			err = errors.Join(err, cleanupErr, finalization.loss)
+		}
 	}()
 	if grace < 0 {
 		return result, errors.New("negative job cancellation timeout")

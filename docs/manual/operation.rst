@@ -11,6 +11,7 @@ Contents
 --------
 
 - `Service management <#service-management>`__
+- `Draining <#draining>`__
 - `Workspaces and cleanup <#workspaces-and-cleanup>`__
 - `Logs <#logs>`__
 
@@ -74,6 +75,40 @@ jobs and cleans up their workspaces; it does not wait for jobs to finish.
       sudo rc-service hrc status
 
    Stop: ``sudo rc-service hrc stop``. Restart: ``sudo rc-service hrc restart``.
+
+Draining
+--------
+
+On Linux and macOS, send ``SIGUSR1`` to **hrcd only** to stop acquisition and
+finish already accepted jobs before releasing queues and spaces:
+
+.. code-block:: sh
+
+   kill -USR1 <hrcd-pid>
+
+For the packaged systemd service:
+
+.. code-block:: sh
+
+   sudo systemctl kill --kill-who=main --signal=SIGUSR1 hrc.service
+
+Drain has no additional overall time limit. Already accepted jobs waiting for a
+slot may still start. A subsequent ``SIGTERM`` or ``SIGINT`` requests cancellation
+instead of waiting for normal completion. Ordinary service stop/restart commands
+still request cancellation; they do not initiate Drain.
+
+Finalization errors can escalate cleanup for the affected queue or space, or stop
+the daemon if that scope cannot be collected. Remaining cleanup obligations are
+reported as errors, not treated as successful release. Loss of the daemon itself
+still requires the service manager's external cleanup.
+
+The daemon exits after draining. Check the service manager's restart policy before
+using this for maintenance: supervision that restarts successful exits, such as
+OpenRC's configured supervisor, may immediately start acquisition again.
+
+Windows currently supports cancellation through the existing stop mechanism, but
+not a separate drain request. WinSW does not automatically forward an SCM custom
+control code to ``hrcd``; Ctrl+Break is not a distinct drain signal in Go.
 
 Workspaces and cleanup
 ----------------------
