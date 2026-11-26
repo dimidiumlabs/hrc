@@ -85,10 +85,10 @@ jobs:
           bazelisk-version: '1.x'
 
       # Install the lock generator and mise CLI, but not the CI linters.
-      - uses: jdx/mise-action@v5.2.9
+      - uses: jdx/mise-action@v5.2.10
         with:
-          version: v2026.11.9
-          sha256: f13f3e5ec88807e0161669b3aa07a91d84478cdf1e95b5b92b63f85a25d42395
+          version: v2026.11.10
+          sha256: b603a4f48563fc379a794d9ea2cf9f709ed276c9141068604cb0c59fa3e674a9
           working_directory: tools
           install_args: --locked github:github/gh-actions-lock
           cache: false
