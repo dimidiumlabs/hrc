@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,22 +17,22 @@ import (
 	"dimidiumlabs.io/hrc/internal/space"
 )
 
-// The child implements only the scheduler wire contract, with no slots or provider.
+// The child implements only the monitor wire contract, with no slots or provider.
 func TestMain(m *testing.M) {
 	if len(os.Args) >= 2 && os.Args[1] == "space-test-exit" {
 		os.Exit(12)
 	}
 	if len(os.Args) == 4 && os.Args[1] == "space-test-stall" {
-		if err := os.WriteFile("scheduler-started", []byte(os.Args[3]), 0600); err != nil {
+		if err := os.WriteFile("monitor-started", []byte("anonymous"), 0600); err != nil {
 			os.Exit(10)
 		}
 		time.Sleep(time.Hour) // Started, but never connects to the controller.
 		os.Exit(0)
 	}
 	if len(os.Args) == 4 && os.Args[1] == "space-test-peer" {
-		conn, err := net.Dial("unix", os.Args[3])
+		conn, err := runtime.InheritedConnection(os.Args[2:])
 		if err != nil {
-			os.Exit(10)
+			os.Exit(20)
 		}
 
 		if err := serveTestPeer(conn); err != nil {
@@ -195,7 +194,7 @@ func TestLazyStartupAndLifecycle(t *testing.T) {
 		t.Fatalf("canceled submission to ready space: %v", err)
 	}
 	if s.Status() != space.Ready || s.child != process {
-		t.Fatal("canceled submission changed a ready scheduler")
+		t.Fatal("canceled submission changed a ready monitor")
 	}
 	if err := s.Destroy(); err != nil {
 		t.Fatal(err)
@@ -226,7 +225,7 @@ func TestCleanupMakesHostRestartable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	process, socket := s.child, spaceSocket(s)
+	process := s.child
 	s.mu.Lock()
 	s.SetStatus(space.Destroying, nil)
 	exitErr, err := s.cleanup()
@@ -234,11 +233,8 @@ func TestCleanupMakesHostRestartable(t *testing.T) {
 	if exitErr != nil || err != nil {
 		t.Fatalf("cleanup: exit=%v error=%v", exitErr, err)
 	}
-	if !childExited(process) || s.child != nil || spaceSocket(s) != "" {
+	if !childExited(process) || s.child != nil {
 		t.Fatal("cleanup returned before reaping and releasing process resources")
-	}
-	if _, err := os.Stat(socket); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("cleanup retained scheduler socket: %v", err)
 	}
 	if err := <-run.Done(); !errors.Is(err, space.ErrUnavailable) {
 		t.Fatalf("old Run: %v", err)
@@ -273,21 +269,21 @@ func TestCanceledStartupCleansUpBeforeIdle(t *testing.T) {
 		_, err := s.Run(ctx, &testJob{kind: "test"})
 		completed <- err
 	}()
-	var socket []byte
+	var started []byte
 	for {
 		var err error
-		socket, err = os.ReadFile(filepath.Join(s.Cwd(), "scheduler-started"))
-		if err == nil && len(socket) != 0 {
+		started, err = os.ReadFile(filepath.Join(s.Cwd(), "monitor-started"))
+		if err == nil && len(started) != 0 {
 			break
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatal("scheduler did not start")
+			t.Fatal("monitor did not start")
 		case <-time.After(time.Millisecond):
 		}
 	}
-	if s.Status() != space.Connecting {
-		t.Fatal("unconnected scheduler did not report Connecting")
+	if s.Status() != space.Starting {
+		t.Fatal("uninitialized monitor did not report Starting")
 	}
 	cancel()
 	if err := <-completed; !errors.Is(err, context.Canceled) {
@@ -296,11 +292,8 @@ func TestCanceledStartupCleansUpBeforeIdle(t *testing.T) {
 	if s.Status() != space.Idle || s.Err() != nil {
 		t.Fatalf("rollback status: %v %v", s.Status(), s.Err())
 	}
-	if s.child != nil || spaceSocket(s) != "" {
+	if s.child != nil {
 		t.Fatal("Idle published with partial startup resources retained")
-	}
-	if _, err := os.Stat(filepath.Dir(string(socket))); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Idle published before socket cleanup: %v", err)
 	}
 	// Rollback must leave the space usable by a subsequent job.
 	s.args[1] = "space-test-peer"
@@ -356,7 +349,7 @@ func TestStartupFailureCanRecover(t *testing.T) {
 	if _, err := s.Run(ctx, &testJob{kind: "test"}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled recovery: %v", err)
 	}
-	if s.Status() != space.Idle || s.Err() != nil || s.child != nil || spaceSocket(s) != "" {
+	if s.Status() != space.Idle || s.Err() != nil || s.child != nil {
 		t.Fatal("canceled recovery did not clean the failed generation before Idle")
 	}
 	s.args[0] = command
@@ -383,7 +376,7 @@ func TestDisconnectDelegatesCleanup(t *testing.T) {
 	if err := <-warm.Done(); err != nil {
 		t.Fatal(err)
 	}
-	process, socket, generation := s.child, spaceSocket(s), s.Daemon.Done()
+	process, generation := s.child, s.Daemon.Done()
 	lost, err := s.Run(ctx, &testJob{kind: "crash"})
 	if err != nil {
 		t.Fatal(err)
@@ -391,10 +384,10 @@ func TestDisconnectDelegatesCleanup(t *testing.T) {
 	if err := <-lost.Done(); !errors.Is(err, space.ErrUnavailable) {
 		t.Fatalf("lost Run: %v", err)
 	}
-	// No Run or Destroy call should be needed to reclaim the dead scheduler.
+	// No Run or Destroy call should be needed to reclaim the dead monitor.
 	for {
 		s.mu.Lock()
-		clean := s.child == nil && spaceSocket(s) == ""
+		clean := s.child == nil
 		s.mu.Unlock()
 		if clean {
 			break
@@ -406,14 +399,11 @@ func TestDisconnectDelegatesCleanup(t *testing.T) {
 		}
 	}
 	if !childExited(process) || s.Status() != space.Broken {
-		t.Fatal("disconnect cleanup did not reap the scheduler or preserve Broken")
+		t.Fatal("disconnect cleanup did not reap the monitor or preserve Broken")
 	}
 	var exitErr *runtime.ExitError
 	if !errors.As(s.Err(), &exitErr) || exitErr.ExitCode() != 12 {
 		t.Fatalf("disconnect cleanup lost the process outcome: %v", s.Err())
-	}
-	if _, err := os.Stat(socket); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("disconnect retained socket: %v", err)
 	}
 	if err := s.Destroy(); err != nil || s.Status() != space.Idle || s.Err() != nil {
 		t.Fatalf("Destroy after crash: status=%v error=%v", s.Status(), err)
@@ -428,11 +418,11 @@ func TestDisconnectDelegatesCleanup(t *testing.T) {
 	replacement := s.child
 	s.Disconnected(generation) // A delayed old notification must be harmless.
 	if s.Status() != space.Ready || s.child != replacement {
-		t.Fatal("stale disconnect cleaned up the replacement scheduler")
+		t.Fatal("stale disconnect cleaned up the replacement monitor")
 	}
 }
 
-func TestLostSchedulerFailsRunsAndRestarts(t *testing.T) {
+func TestLostMonitorFailsRunsAndRestarts(t *testing.T) {
 	for _, kind := range []string{"disconnect", "crash", "transport"} {
 		t.Run(kind, func(t *testing.T) {
 			s := testSpace(t)
@@ -452,7 +442,7 @@ func TestLostSchedulerFailsRunsAndRestarts(t *testing.T) {
 				}
 				time.Sleep(time.Millisecond)
 			}
-			oldProcess, oldSocket := s.child, spaceSocket(s)
+			oldProcess := s.child
 			jobKind := kind
 			if kind == "transport" {
 				jobKind = "wait"
@@ -479,7 +469,7 @@ func TestLostSchedulerFailsRunsAndRestarts(t *testing.T) {
 			for s.Status() != space.Broken {
 				select {
 				case <-ctx.Done():
-					t.Fatal("failed scheduler not reflected in status")
+					t.Fatal("failed monitor not reflected in status")
 				case <-time.After(time.Millisecond):
 				}
 			}
@@ -499,10 +489,7 @@ func TestLostSchedulerFailsRunsAndRestarts(t *testing.T) {
 				t.Fatalf("replacement Run: %v %q", result, data)
 			}
 			if s.child == oldProcess {
-				t.Fatal("scheduler generation was not replaced")
-			}
-			if _, err := os.Stat(oldSocket); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("old scheduler socket leaked: %v", err)
+				t.Fatal("monitor generation was not replaced")
 			}
 			if state, err := s.State(ctx); err != nil || state.Running != 0 || s.Status() != space.Ready {
 				t.Fatalf("replacement state (lost job must not be replayed): %+v %v", state, err)
@@ -511,12 +498,6 @@ func TestLostSchedulerFailsRunsAndRestarts(t *testing.T) {
 	}
 }
 
-func spaceSocket(s *SpaceHost) string {
-	if s.child == nil {
-		return ""
-	}
-	return s.child.SocketPath()
-}
 func childExited(c *runtime.Child) bool {
 	select {
 	case <-c.Done():

@@ -32,6 +32,7 @@ go_library(
     deps = [
         "//internal/config",
         "//internal/provider",
+        "//internal/runtime",
         "//internal/slot",
         "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//credentials/insecure",

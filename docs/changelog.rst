@@ -24,6 +24,9 @@ Changed
 - Rename the space monitor executable from ``hrcs`` to ``hrcm``. Update
   installation commands and service PATHs; the Ansible install role removes
   the obsolete ``hrcs`` binary.
+- Use inherited control descriptors instead of filesystem sockets for monitor,
+  queue and worker RPC. Pass read/write fd or handle values as two positional
+  arguments; keep standard input, output and error independent of the protocol.
 - Centralize shared local RPC limits and lifecycle, cleanup, retry and secret
   command timeouts in ``internal/config``.
 - Reduce the per-message local gRPC limit from 64 MiB to 256 KiB in both
@@ -34,6 +37,11 @@ Changed
   The worker replaces ``hrcw-github``; install all four executables together
   and update service definitions when upgrading. The Ansible install role
   removes the obsolete worker binary.
+- Prepare space directories in ``hrcm`` relative to its working directory.
+  Give each process slot separate home, cache, temporary and work directories;
+  start workers in the work directory and retain slot log directories on cleanup.
+  Clear stale slots and space temporary files at startup, reset slot temporary
+  files before each job, and expose storage paths through ``HRC_*`` variables.
 - Pass runner settings and resource paths directly to the worker, without the
   former runner configuration environment variables. Ignore ``.env`` files
   rather than loading them into provider processes.
@@ -41,6 +49,8 @@ Changed
 Fixed
 ~~~~~
 
+- Confirm Windows process termination before reporting an access-denied error
+  from killing an already exiting child as a cleanup failure.
 - Count development versions across the full first-parent history so new release
   tags cannot reset the counter and block publication.
 - Isolate queue operation deadlines and cancellation from the shared session,

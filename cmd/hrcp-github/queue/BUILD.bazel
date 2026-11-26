@@ -28,6 +28,7 @@ go_library(
         "//cmd/hrcp-github/queue/internal/listener",
         "//internal/config",
         "//internal/provider",
+        "//internal/runtime",
         "@com_github_actions_scaleset//:scaleset",
         "@com_github_golang_jwt_jwt_v5//:jwt",
     ],

@@ -24,14 +24,14 @@ import (
 
 func TestMain(m *testing.M) {
 	if len(os.Args) == 4 && os.Args[1] == "replacement-child" {
-		workerReplacementChild(os.Args[3])
+		workerReplacementChild()
 		os.Exit(0)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "exit-child" {
 		os.Exit(42)
 	}
 	if len(os.Args) == 4 && os.Args[1] == "connected-exit-child" {
-		conn, err := net.Dial("unix", os.Args[3])
+		conn, err := runtime.InheritedConnection(os.Args[2:])
 		if err != nil {
 			os.Exit(30)
 		}
@@ -39,7 +39,7 @@ func TestMain(m *testing.M) {
 		os.Exit(42)
 	}
 	if len(os.Args) == 4 && os.Args[1] == "queue-child" {
-		conn, err := net.Dial("unix", os.Args[3])
+		conn, err := runtime.InheritedConnection(os.Args[2:])
 		if err != nil {
 			os.Exit(30)
 		}
@@ -56,7 +56,7 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	if len(os.Args) == 4 && os.Args[1] == "worker-child" {
-		conn, err := net.Dial("unix", os.Args[3])
+		conn, err := runtime.InheritedConnection(os.Args[2:])
 		if err != nil {
 			os.Exit(32)
 		}
@@ -81,8 +81,8 @@ func TestMain(m *testing.M) {
 
 // Open a second application stream without replacing the accepted connection.
 // Rejection must not cancel the original worker channel.
-func workerReplacementChild(socket string) {
-	connection, err := net.Dial("unix", socket)
+func workerReplacementChild() {
+	connection, err := runtime.InheritedConnection(os.Args[2:])
 	if err != nil {
 		os.Exit(30)
 	}

@@ -6,6 +6,8 @@
 package runtime
 
 import (
+	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"strconv"
@@ -52,3 +54,42 @@ func testSendInterrupt() error {
 }
 
 func (p *Child) closeInherited() {}
+
+func inheritedSocket(input *os.File) (net.Conn, error) {
+	conn, err := net.FileConn(input)
+	if errors.Is(err, syscall.ENOTSOCK) {
+		return nil, nil
+	}
+	return conn, err
+}
+
+func protectControlFiles(input, output *os.File) error {
+	syscall.CloseOnExec(int(input.Fd()))
+	syscall.CloseOnExec(int(output.Fd()))
+	return nil
+}
+
+func socketPair() (net.Conn, *os.File, error) {
+	syscall.ForkLock.RLock()
+	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	if err == nil {
+		syscall.CloseOnExec(fds[0])
+		syscall.CloseOnExec(fds[1])
+	}
+	syscall.ForkLock.RUnlock()
+	if err != nil {
+		if errors.Is(err, syscall.ENOSYS) || errors.Is(err, syscall.EAFNOSUPPORT) || errors.Is(err, syscall.EPROTONOSUPPORT) || errors.Is(err, syscall.EOPNOTSUPP) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	parent := os.NewFile(uintptr(fds[0]), "control-parent")
+	defer parent.Close()
+	child := os.NewFile(uintptr(fds[1]), "control-child")
+	conn, err := net.FileConn(parent)
+	if err != nil {
+		child.Close()
+		return nil, nil, err
+	}
+	return conn, child, nil
+}

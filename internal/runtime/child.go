@@ -8,20 +8,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"time"
 )
 
-// ChildSpec describes a direct child with an optional parent-hosted control socket.
-// A nil SocketArgs disables the socket. Otherwise it supplies protocol-specific
-// arguments; runtime does not assume gRPC or -connect.
+// ChildSpec describes a direct child with an inherited control channel.
+// Runtime does not assume gRPC or interpret the child's command-line arguments.
+// The child receives read and write fd/handle values as its final two positional
+// arguments, after any Command.Pipes descriptors. Stdio remains independent.
 type ChildSpec struct {
 	Command        Command
-	SocketArgs     func(string) []string
 	StartupTimeout time.Duration
 }
 
@@ -39,8 +36,7 @@ type Child struct {
 	input         io.WriteCloser
 	pipes         []io.ReadWriteCloser
 	waitErr       error
-	conn          net.Conn
-	socket        string
+	conn          Connection
 	code          int
 	exitErr       error
 	closeMu       sync.Mutex
@@ -54,9 +50,8 @@ type ExitError struct{ Code int }
 func (e *ExitError) Error() string { return fmt.Sprintf("child exited with status %d", e.Code) }
 func (e *ExitError) ExitCode() int { return e.Code }
 
-func (c *Child) Connection() net.Conn  { <-c.started; return c.conn }
-func (c *Child) SocketPath() string    { <-c.started; return c.socket }
-func (c *Child) Done() <-chan struct{} { return c.done }
+func (c *Child) Connection() Connection { <-c.started; return c.conn }
+func (c *Child) Done() <-chan struct{}  { return c.done }
 func (c *Child) Err() error {
 	select {
 	case <-c.done:
@@ -67,8 +62,8 @@ func (c *Child) Err() error {
 }
 
 // Close retires only this child, never its Group. Startup cancellation is
-// separate from the lifetime of a connected process. Filesystem cleanup may be
-// retried; the process is reaped once, including during startup rollback.
+// separate from the lifetime of a connected process. The process is reaped once,
+// including during startup rollback.
 func (c *Child) Close(grace time.Duration) (exitErr, cleanupErr error) {
 	c.startupCancel()
 	<-c.started
@@ -103,9 +98,6 @@ func (c *Child) Close(grace time.Duration) (exitErr, cleanupErr error) {
 		c.processClosed = true
 	}
 	cleanupErr = c.cleanupErr
-	if c.socket != "" {
-		cleanupErr = errors.Join(cleanupErr, os.RemoveAll(filepath.Dir(c.socket)))
-	}
 	if cleanupErr == nil && c.pool != nil {
 		c.pool.mu.Lock()
 		delete(c.pool.children, c)

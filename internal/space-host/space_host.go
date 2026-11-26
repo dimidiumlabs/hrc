@@ -31,7 +31,8 @@ type SpaceHost struct {
 	args   []string
 	config *space.Config
 
-	rootDir string
+	rootDir     string
+	initialized bool
 }
 
 var (
@@ -41,8 +42,8 @@ var (
 
 // New prepares configuration only. Run launches hrcm on the first Job.
 func New(name, root string, command []string, config *space.Config, pool *runtime.Pool) (*SpaceHost, error) {
-	if name == "" || root == "" || len(command) == 0 {
-		return nil, fmt.Errorf("%w: space name, root and monitor command are required", space.ErrInvalidConfig)
+	if name == "" || root == "" || len(command) == 0 || config == nil {
+		return nil, fmt.Errorf("%w: space name, root, monitor command and configuration are required", space.ErrInvalidConfig)
 	}
 
 	root, err := filepath.Abs(root)
@@ -64,6 +65,7 @@ func New(name, root string, command []string, config *space.Config, pool *runtim
 		args:    command,
 		pool:    pool,
 	}
+	space.config.SpaceType = space.Type()
 	space.Daemon.Delegate = &space
 	return &space, nil
 }
@@ -123,6 +125,7 @@ func (s *SpaceHost) connect(ctx context.Context) error {
 // start launches a monitor after connect has retired the previous generation.
 // The caller holds s.mu and handles lifecycle status and error classification.
 func (s *SpaceHost) start(ctx context.Context) error {
+	// Only the launch cwd is created here; hrcm prepares the space contents.
 	if err := os.MkdirAll(s.rootDir, 0700); err != nil {
 		return err
 	}
@@ -130,13 +133,16 @@ func (s *SpaceHost) start(ctx context.Context) error {
 	defer cancel()
 	var err error
 	s.child, err = s.pool.Start(startup, runtime.ChildSpec{
-		Command:    runtime.Command{Path: s.args[0], Args: s.args[1:], Dir: s.rootDir, Stdout: os.Stdout, Stderr: os.Stderr},
-		SocketArgs: func(socket string) []string { return []string{"-connect", socket} },
+		Command: runtime.Command{Path: s.args[0], Args: s.args[1:], Dir: s.rootDir, Stdout: os.Stdout, Stderr: os.Stderr},
 	})
 	if err != nil {
 		return fmt.Errorf("start monitor: %w", err)
 	}
-	return s.Daemon.Connect(startup, s.child.Connection(), s.config)
+	if err := s.Daemon.Connect(startup, s.child.Connection(), s.config); err != nil {
+		return err
+	}
+	s.initialized = true
+	return nil
 }
 
 // cleanup retires the protocol before releasing its child through the pool.
@@ -147,12 +153,13 @@ func (s *SpaceHost) cleanup() (exitErr, err error) {
 		return nil, err
 	}
 	grace := hrcconfig.MonitorExitTimeout
-	if s.Status() == space.Connecting {
+	if !s.initialized {
 		grace = 0
 	}
 	exitErr, cleanup := s.child.Close(grace)
 	if cleanup == nil {
 		s.child = nil
+		s.initialized = false
 	}
 	return exitErr, errors.Join(err, cleanup)
 }

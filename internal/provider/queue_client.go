@@ -55,14 +55,13 @@ func launchQueue(ctx context.Context, command []string, pool *runtime.Pool) (*qu
 	context.AfterFunc(lifetime, p.server.Stop)
 	var err error
 	p.child, err = pool.Start(startup, runtime.ChildSpec{
-		Command:    runtime.Command{Path: command[0], Args: command[1:], Stdout: os.Stdout, Stderr: os.Stderr},
-		SocketArgs: func(socket string) []string { return []string{"-connect", socket} },
+		Command: runtime.Command{Path: command[0], Args: command[1:], Stdout: os.Stdout, Stderr: os.Stderr},
 	})
 	if err != nil {
 		cancel()
 		return nil, err
 	}
-	go p.server.Serve(&providerListener{conn: p.child.Connection(), done: make(chan struct{})})
+	go p.server.Serve(p.child.Connection().Listener())
 	select {
 	case <-p.ready:
 		return p, nil

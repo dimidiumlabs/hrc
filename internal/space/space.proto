@@ -4,7 +4,7 @@ syntax = "proto3";
 package hrc.space.v1;
 option go_package = "dimidiumlabs.io/hrc/internal/space";
 
-service Scheduler {
+service Monitor {
   rpc Init(InitRequest) returns (InitResponse);
   rpc Inspect(InspectRequest) returns (Snapshot);
 
@@ -15,11 +15,12 @@ service Scheduler {
 
 // Concrete slot/provider settings are decoded only by the composition root.
 message Config {
-  uint64 capacity = 1;
-  bool ephemeral = 2;
-  string slot = 3;
-  bytes slot_config = 4;
-  map<string, bytes> providers = 5;
+  string space_type = 1;
+  uint64 capacity = 2;
+  bool ephemeral = 3;
+  string slot = 4;
+  bytes slot_config = 5;
+  map<string, bytes> providers = 6;
 }
 
 message InitRequest {

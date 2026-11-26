@@ -7,6 +7,7 @@ package runtime
 
 import (
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"strconv"
@@ -15,6 +16,20 @@ import (
 
 	"golang.org/x/sys/windows"
 )
+
+func inheritedSocket(*os.File) (net.Conn, error) { return nil, nil }
+
+func protectControlFiles(input, output *os.File) error {
+	for _, file := range []*os.File{input, output} {
+		if err := windows.SetHandleInformation(windows.Handle(file.Fd()), windows.HANDLE_FLAG_INHERIT, 0); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Windows uses anonymous pipes for inherited control channels.
+func socketPair() (net.Conn, *os.File, error) { return nil, nil, nil }
 
 // configure gives the child a console of its own.
 func (p *Child) configure(files []*os.File) error {

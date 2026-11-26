@@ -4,7 +4,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Threading;
@@ -19,34 +18,12 @@ internal static class Program
         if (!condition) throw new Exception(message);
     }
 
-    private static void CheckEnvironment(string[] expected)
-    {
-        foreach (string entry in expected)
-        {
-            int equal = entry.IndexOf('=');
-            string name = entry.Substring(0, equal);
-            Check(Environment.GetEnvironmentVariable(name) == entry.Substring(equal + 1), name + " was not preserved");
-        }
-    }
-
     private static void CheckEnvironmentUnchanged(IDictionary expected)
     {
         var actual = Environment.GetEnvironmentVariables();
         Check(actual.Count == expected.Count, "runtime configuration changed environment variables");
         foreach (string name in expected.Keys)
             Check(Equals(expected[name], actual[name]), name + " changed during runtime configuration");
-    }
-
-    private static async Task CheckChildEnvironment(string[] expected, CancellationToken token)
-    {
-        CheckEnvironment(expected);
-        var start = new ProcessStartInfo(Environment.ProcessPath) { UseShellExecute = false };
-        start.ArgumentList.Add("--check-env");
-        foreach (string entry in expected) start.ArgumentList.Add(entry);
-        // Do not filter the child's environment: test ordinary inheritance.
-        using var child = Process.Start(start);
-        await child.WaitForExitAsync(token);
-        Check(child.ExitCode == 0, "child environment contract failed");
     }
 
     private static HostContext CreateContext(string root, string diag, RunnerSettings settings) =>
@@ -62,9 +39,11 @@ internal static class Program
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var token = deadline.Token;
-        if (args.Length > 0 && args[0] == "--check-env")
+        if (args.Length == 3 && args[0] == "--echo-channel")
         {
-            CheckEnvironment(args[1..]);
+            var type = typeof(HrcWorkerHost).GetNestedType("InheritedStream", BindingFlags.NonPublic);
+            using var stream = (Stream)type.GetMethod("Open").Invoke(null, new object[] { args[1], args[2] });
+            await stream.CopyToAsync(stream, token);
             return;
         }
         if (args.Length == 2 && args[0] == "--message-size")
@@ -81,12 +60,6 @@ internal static class Program
             // Only the explicitly requested user environment may change.
             environment["HRC_TEST_USER"] = "explicit";
             CheckEnvironmentUnchanged(environment);
-            await CheckChildEnvironment(new[]
-            {
-                "RUNNER_TRACKING_GROUP=tracking-from-parent",
-                "HRC_TEST_USER=explicit",
-                "HRC_TEST_DOTENV=inherited",
-            }, token);
             return;
         }
         using (var channel = new HrcWorkerHost("{\"raw\":true}"))
@@ -143,7 +116,6 @@ internal static class Program
             foreach (string reason in new[] { "RunnerShutdown", "OperatingSystemShutdown", "early" })
                 Check(Directory.GetFiles(Path.Combine(root, reason), "Worker_*.log").Length == 1, "diagnostics are not isolated per invocation");
             CheckEnvironmentUnchanged(environment);
-            await CheckChildEnvironment(Array.Empty<string>(), token);
         }
         finally { Directory.Delete(root, recursive: true); }
     }

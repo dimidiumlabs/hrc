@@ -6,6 +6,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -16,18 +17,42 @@ import (
 )
 
 func childTestMain() {
-	if len(os.Args) != 5 || os.Args[1] != "hrc-socket-child" {
+	if len(os.Args) == 4 && os.Args[1] == "hrc-stdio-child" {
+		conn, err := InheritedConnection(os.Args[2:])
+		if err != nil {
+			os.Exit(20)
+		}
+		input, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			os.Exit(21)
+		}
+		fmt.Printf("stdout: %s", input)
+		fmt.Fprintln(os.Stderr, "stderr diagnostic")
+		io.Copy(conn, conn)
+		conn.Close()
+		os.Exit(0)
+	}
+	if len(os.Args) == 4 && os.Args[1] == "hrc-anonymous-child" {
+		conn, err := InheritedConnection(os.Args[2:])
+		if err != nil {
+			os.Exit(20)
+		}
+		io.Copy(conn, conn)
+		conn.Close()
+		os.Exit(0)
+	}
+	if (len(os.Args) != 3 && len(os.Args) != 5) || os.Args[1] != "hrc-control-child" {
 		return
 	}
 	switch os.Args[2] {
 	case "exit":
 		os.Exit(12)
 	case "stall":
-		os.WriteFile("started", []byte(os.Args[4]), 0600)
+		os.WriteFile("started", []byte("started"), 0600)
 		time.Sleep(time.Hour)
 		os.Exit(0)
 	}
-	conn, err := net.Dial("unix", os.Args[4])
+	conn, err := InheritedConnection(os.Args[3:])
 	if err != nil {
 		os.Exit(20)
 	}
@@ -48,11 +73,10 @@ func childSpec(t *testing.T, mode string) ChildSpec {
 		t.Fatal(err)
 	}
 	return ChildSpec{
-		Command:    Command{Path: self, Args: []string{"hrc-socket-child", mode}, Dir: t.TempDir(), Stdout: os.Stdout, Stderr: os.Stderr},
-		SocketArgs: func(socket string) []string { return []string{"-connect", socket} },
+		Command: Command{Path: self, Args: []string{"hrc-control-child", mode}, Dir: t.TempDir(), Stderr: os.Stderr},
 	}
 }
-func startSocketChild(t *testing.T, pool *Pool, spec ChildSpec) *Child {
+func startControlChild(t *testing.T, pool *Pool, spec ChildSpec) *Child {
 	t.Helper()
 	c, err := pool.Start(t.Context(), spec)
 	if err != nil {
@@ -69,20 +93,20 @@ func startSocketChild(t *testing.T, pool *Pool, spec ChildSpec) *Child {
 
 // The same Child owns bare and connected processes. Concurrent joins and cleanup
 // must never call exec.Cmd.Wait twice or close a slot's reusable Group.
-func TestChildWithoutSocketConcurrentWaitAndClose(t *testing.T) {
+func TestChildConcurrentWaitAndClose(t *testing.T) {
 	var pool Pool
 	groups := []*Group{nil, newTestPGroup(t), newTestPGroup(t)}
 	var children []*Child
 	for _, group := range groups {
 		c, err := pool.Start(t.Context(), ChildSpec{Command: Command{
-			Group: group, Path: os.Args[0], Args: []string{"hrc-socket-child", "exit", "-connect", "unused"},
+			Group: group, Path: os.Args[0], Args: []string{"hrc-control-child", "exit"},
 		}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		children = append(children, c)
-		if c.Connection() != nil || c.SocketPath() != "" {
-			t.Fatal("bare child allocated a control socket")
+		if c.Connection() == nil {
+			t.Fatal("pool child has no control channel")
 		}
 	}
 	if len(pool.Children()) != len(children) {
@@ -113,7 +137,7 @@ func TestChildWithoutSocketConcurrentWaitAndClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, group := range groups[1:] {
-		c, err := group.Start(t.Context(), Command{Path: os.Args[0], Args: []string{"hrc-socket-child", "exit", "-connect", "unused"}})
+		c, err := group.Start(t.Context(), Command{Path: os.Args[0], Args: []string{"hrc-control-child", "exit"}})
 		if err != nil {
 			t.Fatalf("child cleanup closed its group: %v", err)
 		}
@@ -123,7 +147,7 @@ func TestChildWithoutSocketConcurrentWaitAndClose(t *testing.T) {
 
 func TestChildRetainsOutcomeAfterExit(t *testing.T) {
 	var pool Pool
-	c := startSocketChild(t, &pool, childSpec(t, "outcome"))
+	c := startControlChild(t, &pool, childSpec(t, "outcome"))
 	select {
 	case <-c.Done():
 	case <-time.After(10 * time.Second):
@@ -139,7 +163,7 @@ func TestChildRetainsOutcomeAfterExit(t *testing.T) {
 }
 
 func TestPoolStartupFailure(t *testing.T) {
-	for _, mode := range []string{"exit", "missing", "canceled"} {
+	for _, mode := range []string{"missing", "canceled"} {
 		t.Run(mode, func(t *testing.T) {
 			var pool Pool
 			spec := childSpec(t, mode)
@@ -155,12 +179,7 @@ func TestPoolStartupFailure(t *testing.T) {
 			if err == nil {
 				t.Fatal("startup succeeded")
 			}
-			if mode == "exit" {
-				var exit *ExitError
-				if ctx.Err() != nil || !errors.As(err, &exit) || exit.ExitCode() != 12 {
-					t.Fatalf("early exit: %v", err)
-				}
-			}
+
 			if len(pool.Children()) != 0 {
 				t.Fatal("failed startup leaked a child")
 			}
@@ -171,16 +190,32 @@ func TestPoolStartupFailure(t *testing.T) {
 	}
 }
 
-func TestPoolCloseDuringStartup(t *testing.T) {
+func TestChildEarlyExitClosesChannel(t *testing.T) {
+	var pool Pool
+	c, err := pool.Start(t.Context(), childSpec(t, "exit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close(0)
+	if code, err := c.Wait(); err != nil || code != 12 {
+		t.Fatalf("exit: %d %v", code, err)
+	}
+	data, err := io.ReadAll(c.Connection())
+	if err != nil || len(data) != 0 {
+		t.Fatalf("channel after exit: %q %v", data, err)
+	}
+}
+
+func TestPoolCloseUnresponsiveChild(t *testing.T) {
 	var pool Pool
 	spec := childSpec(t, "stall")
-	done := make(chan error, 1)
-	go func() { _, err := pool.Start(t.Context(), spec); done <- err }()
+	c, err := pool.Start(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
 	deadline := time.After(10 * time.Second)
-	var socket []byte
 	for {
-		socket, _ = os.ReadFile(filepath.Join(spec.Command.Dir, "started"))
-		if len(socket) > 0 {
+		if data, _ := os.ReadFile(filepath.Join(spec.Command.Dir, "started")); len(data) > 0 {
 			break
 		}
 		select {
@@ -189,39 +224,35 @@ func TestPoolCloseDuringStartup(t *testing.T) {
 		case <-time.After(time.Millisecond):
 		}
 	}
-	// A forced startup rollback may report the killed child's exit status.
+	// An unresponsive peer may report the killed child's exit status.
 	pool.Close()
-	if err := <-done; !errors.Is(err, context.Canceled) {
-		t.Fatalf("startup not canceled: %v", err)
+	select {
+	case <-c.Done():
+	default:
+		t.Fatal("pool returned before reaping child")
 	}
-	if _, err := os.Stat(filepath.Dir(string(socket))); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("socket leaked: %v", err)
+	if len(pool.Children()) != 0 {
+		t.Fatal("closed pool retained child")
 	}
 	if _, err := pool.Start(t.Context(), spec); !errors.Is(err, os.ErrClosed) {
 		t.Fatalf("closed pool accepted child: %v", err)
 	}
 }
 
-func TestChildCleanupRetry(t *testing.T) {
+func TestChildCloseReleasesChannelAndPool(t *testing.T) {
 	var pool Pool
-	c := startSocketChild(t, &pool, childSpec(t, "echo"))
-	actual := c.socket
-	c.socket = filepath.Join(t.TempDir(), "invalid\x00socket", "rpc.sock")
-	if _, err := c.Close(5 * time.Second); err == nil {
-		t.Fatal("invalid cleanup succeeded")
-	}
-	if len(pool.Children()) != 1 {
-		t.Fatal("failed cleanup discarded ownership")
-	}
-	c.socket = actual
-	if _, err := c.Close(5 * time.Second); err != nil {
-		t.Fatal(err)
+	c := startControlChild(t, &pool, childSpec(t, "echo"))
+	if exit, cleanup := c.Close(5 * time.Second); exit != nil || cleanup != nil {
+		t.Fatalf("close: %v %v", exit, cleanup)
 	}
 	if len(pool.Children()) != 0 {
-		t.Fatal("successful cleanup retained child")
+		t.Fatal("closed child retained by pool")
 	}
-	if _, err := os.Stat(actual); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("socket leaked: %v", err)
+	if _, err := c.Connection().Write([]byte("after close")); !errors.Is(err, net.ErrClosed) && !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("connection remained open: %v", err)
+	}
+	if exit, cleanup := c.Close(0); exit != nil || cleanup != nil {
+		t.Fatalf("repeated close: %v %v", exit, cleanup)
 	}
 }
 
@@ -261,7 +292,7 @@ func TestChildGroupAndStartupContextIndependent(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Pool cleanup must not prevent the slot's Group from accepting a new child.
-	p, err := group.Start(t.Context(), Command{Path: os.Args[0], Args: []string{"hrc-socket-child", "exit", "-connect", "unused"}})
+	p, err := group.Start(t.Context(), Command{Path: os.Args[0], Args: []string{"hrc-control-child", "exit"}})
 	if err != nil {
 		t.Fatalf("pool closed its children's group: %v", err)
 	}

@@ -5,16 +5,18 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
+	"path/filepath"
 	"sync"
 
 	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
 	"dimidiumlabs.io/hrc/internal/runtime"
 	"dimidiumlabs.io/hrc/internal/slot"
+	slotpgroup "dimidiumlabs.io/hrc/internal/slot-pgroup"
 	"dimidiumlabs.io/hrc/internal/space"
 )
 
@@ -24,7 +26,8 @@ type allocation struct {
 	busy bool
 }
 
-type scheduler struct {
+type Monitor struct {
+	rpc               *rpc
 	pool              *runtime.Pool
 	mu                sync.Mutex
 	limit, used, next int
@@ -41,14 +44,14 @@ type scheduler struct {
 
 // All slots use the same factory and reuse policy. Creation counts against
 // capacity, and occurs only after a Run is submitted.
-func newScheduler(limit int, reuse bool, create func(context.Context, string) (slot.Slot, error)) (*scheduler, error) {
+func newSlotMonitor(limit int, reuse bool, create func(context.Context, string) (slot.Slot, error)) (*Monitor, error) {
 	if limit <= 0 || create == nil {
 		return nil, errors.New("positive slot limit and factory are required")
 	}
-	return &scheduler{limit: limit, reuse: reuse, create: create, all: make(map[*allocation]struct{}), changed: make(chan struct{})}, nil
+	return &Monitor{limit: limit, reuse: reuse, create: create, all: make(map[*allocation]struct{}), changed: make(chan struct{})}, nil
 }
 
-func (s *scheduler) acquire(ctx context.Context) (*allocation, error) {
+func (s *Monitor) acquire(ctx context.Context) (*allocation, error) {
 	s.mu.Lock()
 	s.waiting++
 	for s.used == s.limit && !s.closed && ctx.Err() == nil {
@@ -78,7 +81,7 @@ func (s *scheduler) acquire(ctx context.Context) (*allocation, error) {
 		return a, nil
 	}
 	s.next++
-	name := fmt.Sprintf("slot-%d", s.next)
+	name := fmt.Sprintf("slt-%d", s.next)
 	s.mu.Unlock()
 	instance, err := s.create(ctx, name)
 	s.mu.Lock()
@@ -105,14 +108,14 @@ func (s *scheduler) acquire(ctx context.Context) (*allocation, error) {
 
 // release is called after the Run has stopped and been reaped. An unusable
 // slot is discarded even if reuse is enabled.
-func (s *scheduler) release(a *allocation, usable bool) error {
+func (s *Monitor) release(a *allocation, usable bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
 		return nil
 	}
 	if _, ok := s.all[a]; !ok || !a.busy {
-		return errors.New("slot is not acquired from this scheduler")
+		return errors.New("slot is not acquired from this monitor")
 	}
 	var err error
 	if s.reuse && usable {
@@ -127,9 +130,9 @@ func (s *scheduler) release(a *allocation, usable bool) error {
 	return err
 }
 
-func (s *scheduler) notify() { close(s.changed); s.changed = make(chan struct{}) }
+func (s *Monitor) notify() { close(s.changed); s.changed = make(chan struct{}) }
 
-func (s *scheduler) state() space.State {
+func (s *Monitor) state() space.State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state := space.State{Capacity: uint64(s.limit), Slots: uint64(len(s.all)), BusySlots: uint64(s.used), Queued: uint64(s.waiting)}
@@ -144,7 +147,7 @@ func (s *scheduler) state() space.State {
 
 // close expires idle and active slots and wakes waiting acquisitions.
 // All Runs must be stopped before closing their slots.
-func (s *scheduler) close() error {
+func (s *Monitor) close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.closed {
@@ -161,43 +164,102 @@ func (s *scheduler) close() error {
 	return s.closeErr
 }
 
-func serve(ctx context.Context, conn net.Conn, configure func(*space.Config) (*scheduler, error)) error {
-	var s *scheduler
-	server := &Scheduler{
-		Configure: func(config *space.Config) (err error) { s, err = configure(config); return err },
-		State:     func() space.State { return s.state() },
-		Execute: func(ctx context.Context, name string, payload []byte, stops <-chan provider.StopReason) (provider.Result, []byte, error) {
-			job, err := s.decode(name, payload)
-			if err != nil {
-				return provider.Failed, nil, err
+// NewMonitor prepares the environment described by a completed RPC handshake.
+func NewMonitor(r *rpc) (*Monitor, error) {
+	config := r.config
+	if config.SpaceType == "" {
+		return nil, fmt.Errorf("%w: space type is required", space.ErrInvalidConfig)
+	}
+	root, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+
+	providers := make(map[string]provider.ProcessConfig, len(config.Providers))
+	for name, data := range config.Providers {
+		var cfg provider.ProcessConfig
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return nil, err
+		}
+
+		if err := cfg.Validate(); err != nil {
+			return nil, fmt.Errorf("provider %q: %w", name, err)
+		}
+
+		providers[name] = cfg
+	}
+
+	switch config.Slot {
+	case "pgroup":
+		var slotConfig slotpgroup.Config
+		if err := json.Unmarshal(config.SlotConfig, &slotConfig); err != nil {
+			return nil, fmt.Errorf("pgroup configuration: %w", err)
+		}
+
+	default:
+		return nil, fmt.Errorf("unknown slot implementation %q", config.Slot)
+	}
+
+	environment := space.NewEnvSpace(root, config.SpaceType, config.Slot)
+	pool := &runtime.Pool{}
+	s, err := newSlotMonitor(int(config.Capacity), !config.Ephemeral, func(ctx context.Context, _ string) (slot.Slot, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		slotEnv, err := newSlotEnvironment(environment, config.Slot)
+		if err != nil {
+			return nil, err
+		}
+		target, err := slotpgroup.New(slotEnv, providers, pool)
+		if err != nil {
+			return nil, errors.Join(err, slotEnv.Destroy())
+		}
+		return target, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := environment.Prepare(); err != nil {
+		return nil, err
+	}
+	s.rpc = r
+	s.pool = pool
+	s.decode = func(name string, payload []byte) (provider.Job, error) {
+		if _, ok := providers[name]; !ok {
+			return nil, fmt.Errorf("%w: %s", slot.ErrProviderUnavailable, name)
+		}
+		return &provider.OpaqueJob{Provider: name, Payload: payload}, nil
+	}
+	return s, nil
+}
+
+// Serve attaches this monitor to its initialized RPC and serves until shutdown.
+func (s *Monitor) Serve(ctx context.Context) error { return s.rpc.serve(ctx, s) }
+
+func (s *Monitor) run(ctx context.Context, name string, payload []byte, stops <-chan provider.StopReason) (provider.Result, []byte, error) {
+	job, err := s.decode(name, payload)
+	if err != nil {
+		return provider.Failed, nil, err
+	}
+	lifetime, cancel := context.WithCancel(ctx)
+	defer cancel()
+	runCtx, stopRun := context.WithCancel(lifetime)
+	defer stopRun()
+	e := &execution{ctx: runCtx, lifetime: lifetime, cancel: stopRun, changed: make(chan struct{}, 1)}
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		for {
+			select {
+			case reason := <-stops:
+				e.request(reason)
+			case <-lifetime.Done():
+				return
 			}
-			lifetime, cancel := context.WithCancel(ctx)
-			defer cancel()
-			runCtx, stopRun := context.WithCancel(lifetime)
-			defer stopRun()
-			e := &execution{ctx: runCtx, lifetime: lifetime, cancel: stopRun, changed: make(chan struct{}, 1)}
-			stopped := make(chan struct{})
-			go func() {
-				defer close(stopped)
-				for {
-					select {
-					case reason := <-stops:
-						e.request(reason)
-					case <-lifetime.Done():
-						return
-					}
-				}
-			}()
-			defer func() { cancel(); <-stopped }()
-			return s.execute(e, job)
-		},
-	}
-	err := server.Serve(ctx, conn)
-	// Serve waits for RPC handlers, so every Run has stopped before slots expire.
-	if s != nil {
-		err = errors.Join(err, s.close())
-	}
-	return err
+		}
+	}()
+	defer func() { cancel(); <-stopped }()
+	return s.execute(e, job)
 }
 
 type execution struct {
@@ -227,7 +289,7 @@ func (e *execution) request(kind provider.StopReason) {
 	}
 }
 
-func (s *scheduler) execute(e *execution, job provider.Job) (result provider.Result, data []byte, err error) {
+func (s *Monitor) execute(e *execution, job provider.Job) (result provider.Result, data []byte, err error) {
 	result = provider.Failed
 	allocation, err := s.acquire(e.ctx)
 	if err != nil {
@@ -306,4 +368,40 @@ func (s *scheduler) execute(e *execution, job provider.Job) (result provider.Res
 			}
 		}
 	}
+}
+
+// slotEnvironment adapts storage paths and lifecycle to the process slot.
+type slotEnvironment struct {
+	*slot.EnvSlot
+	space *space.EnvSpace
+}
+
+func newSlotEnvironment(environment *space.EnvSpace, slotType string) (*slotEnvironment, error) {
+	name, err := environment.NewSlot()
+	if err != nil {
+		return nil, err
+	}
+	f := &slotEnvironment{
+		EnvSlot: slot.NewEnvSlot(name, filepath.Join(environment.DirSlots(), name), filepath.Join(environment.DirLogSlots(), name), slotType),
+		space:   environment,
+	}
+	if err := f.Prepare(); err != nil {
+		return nil, errors.Join(err, f.Destroy())
+	}
+	return f, nil
+}
+
+func (f *slotEnvironment) Cwd() string { return f.DirWork() }
+func (f *slotEnvironment) Environment() []string {
+	env := os.Environ()
+	for _, values := range []map[string]string{f.space.Environ(), f.Environ()} {
+		for name, value := range values {
+			env = append(env, name+"="+value)
+		}
+	}
+	return env
+}
+
+func (f *slotEnvironment) Destroy() error {
+	return os.RemoveAll(filepath.Join(f.space.DirSlots(), f.Name()))
 }

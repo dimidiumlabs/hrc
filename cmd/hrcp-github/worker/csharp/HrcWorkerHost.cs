@@ -3,9 +3,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Globalization;
 using System.IO;
+using System.IO.Pipes;
 using System.Net.Http;
-using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -26,7 +29,8 @@ namespace GitHub.Runner.Worker
         private const int MaxMessageSize = 256 << 10;
 
         private static readonly AsyncLocal<HrcWorkerHost> CurrentChannel = new();
-        public static bool Handles(string[] args) => args.Length > 0 && (args[0] == "-connect" || args[0] == "-version");
+        public static bool Handles(string[] args) => (args.Length == 1 && args[0] == "-version") ||
+            (args.Length == 2 && InheritedStream.IsDescriptor(args[0]) && InheritedStream.IsDescriptor(args[1]));
 
         public static IProcessChannel CreateChannel(IHostContext context)
         {
@@ -106,11 +110,11 @@ namespace GitHub.Runner.Worker
                 Console.WriteLine(BuildConstants.RunnerPackage.Version);
                 return 0;
             }
-            if (args.Length != 2 || args[0] != "-connect") return 1;
+            if (args.Length != 2) return 1;
             try
             {
                 using var host = new HrcWorkerHost();
-                await host.ConnectAsync(args[1]);
+                await host.ConnectAsync(args[0], args[1]);
                 return 0;
             }
             catch (OperationCanceledException) { return 0; }
@@ -127,24 +131,18 @@ namespace GitHub.Runner.Worker
             }
         }
 
-        private async Task ConnectAsync(string socketPath)
+        private async Task ConnectAsync(string readDescriptor, string writeDescriptor)
         {
+            using var transport = InheritedStream.Open(readDescriptor, writeDescriptor);
             int connected = 0;
             using var handler = new SocketsHttpHandler
             {
-                ConnectCallback = async (_, token) =>
+                ConnectCallback = (_, token) =>
                 {
                     // A replacement connection must never replay a task.
+                    token.ThrowIfCancellationRequested();
                     if (Interlocked.Exchange(ref connected, 1) != 0) throw new IOException("Parent connection lost");
-                    var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-                    try
-                    {
-                        using var startup = CancellationTokenSource.CreateLinkedTokenSource(token);
-                        startup.CancelAfter(TimeSpan.FromSeconds(30));
-                        await socket.ConnectAsync(new UnixDomainSocketEndPoint(socketPath), startup.Token);
-                        return new NetworkStream(socket, ownsSocket: true);
-                    }
-                    catch { socket.Dispose(); throw; }
+                    return new ValueTask<Stream>(transport);
                 },
             };
             using var connection = GrpcChannel.ForAddress("http://parent", new GrpcChannelOptions
@@ -264,6 +262,7 @@ namespace GitHub.Runner.Worker
                 settings.DisableUpdate = true;
                 if (string.IsNullOrEmpty(settings.AgentName)) settings.AgentName = Environment.MachineName;
                 string logs = options.LogRoot;
+                if (string.IsNullOrEmpty(logs)) logs = Environment.GetEnvironmentVariable("HRC_SPACE_DIR_LOG");
                 if (string.IsNullOrEmpty(logs)) logs = Path.Combine(Directory.GetCurrentDirectory(), "_diag");
                 return new HostContext("Worker", settings: settings, directories: new Dictionary<WellKnownDirectory, string>
                 {
@@ -289,6 +288,78 @@ namespace GitHub.Runner.Worker
                 throw new ArgumentException();
             }
             Environment.SetEnvironmentVariable(name, entry.Substring(equal + 1));
+        }
+
+        // Read and write descriptors are inherited separately from stdio and
+        // passed as decimal positional arguments on both Unix and Windows.
+        private sealed class InheritedStream : Stream
+        {
+            private readonly Stream _read;
+            private readonly Stream _write;
+
+            private InheritedStream(Stream read, Stream write) { _read = read; _write = write; }
+
+            public static bool IsDescriptor(string value) =>
+                long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out long fd) &&
+                fd > 2 && (IntPtr.Size == 8 || fd <= int.MaxValue);
+
+            public static Stream Open(string readDescriptor, string writeDescriptor)
+            {
+                if (!IsDescriptor(readDescriptor) || !IsDescriptor(writeDescriptor))
+                    throw new ArgumentException("Invalid control descriptor");
+                AnonymousPipeClientStream read = null;
+                AnonymousPipeClientStream write = null;
+                try
+                {
+                    read = new AnonymousPipeClientStream(PipeDirection.In, readDescriptor);
+                    write = new AnonymousPipeClientStream(PipeDirection.Out, writeDescriptor);
+                    foreach (var stream in new[] { read, write })
+                    {
+                        var handle = stream.SafePipeHandle;
+                        if (OperatingSystem.IsWindows())
+                        {
+                            if (!SetHandleInformation(handle, 1, 0)) // HANDLE_FLAG_INHERIT
+                                throw new Win32Exception(Marshal.GetLastPInvokeError());
+                        }
+                        // F_SETFD / FD_CLOEXEC have the same values on Linux and macOS.
+                        else if (Fcntl(handle.DangerousGetHandle().ToInt32(), 2, 1) < 0)
+                            throw new Win32Exception(Marshal.GetLastPInvokeError());
+                    }
+                    return new InheritedStream(read, write);
+                }
+                catch
+                {
+                    read?.Dispose();
+                    write?.Dispose();
+                    throw;
+                }
+            }
+
+            public override bool CanRead => true;
+            public override bool CanWrite => true;
+            public override bool CanSeek => false;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override int Read(byte[] buffer, int offset, int count) => _read.Read(buffer, offset, count);
+            public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken token) => _read.ReadAsync(buffer, offset, count, token);
+            public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken token = default) => _read.ReadAsync(buffer, token);
+            public override void Write(byte[] buffer, int offset, int count) => _write.Write(buffer, offset, count);
+            public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken token) => _write.WriteAsync(buffer, offset, count, token);
+            public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken token = default) => _write.WriteAsync(buffer, token);
+            public override void Flush() => _write.Flush();
+            public override Task FlushAsync(CancellationToken token) => _write.FlushAsync(token);
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing) { _read.Dispose(); _write.Dispose(); }
+                base.Dispose(disposing);
+            }
+
+            [DllImport("libc", EntryPoint = "fcntl", SetLastError = true)]
+            private static extern int Fcntl(int fd, int command, int value);
+            [DllImport("kernel32.dll", SetLastError = true)]
+            private static extern bool SetHandleInformation(SafeHandle handle, uint mask, uint flags);
         }
 
         private sealed class WorkerOptions

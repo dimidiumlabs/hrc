@@ -6,9 +6,7 @@ package runtime
 import (
 	"context"
 	"errors"
-	"net"
 	"os"
-	"path/filepath"
 	"sync"
 
 	hrcconfig "dimidiumlabs.io/hrc/internal/config"
@@ -32,6 +30,7 @@ func (p *Pool) Children() []*Child {
 	return children
 }
 
+// Start launches a child with an inherited control channel.
 func (p *Pool) Start(ctx context.Context, spec ChildSpec) (*Child, error) {
 	return launchChild(ctx, spec, p)
 }
@@ -73,54 +72,20 @@ func launchChild(ctx context.Context, spec ChildSpec, p *Pool) (child *Child, er
 		return nil, err
 	}
 	command := spec.Command
-	if spec.SocketArgs == nil {
-		if err := c.startProcess(startup, command); err != nil {
+	// Pool children always have a control channel; StartChild is a bare launch.
+	if p != nil {
+		conn, input, output, err := anonymousConnection()
+		if err != nil {
 			return nil, err
 		}
-		return c, nil
+		defer input.Close()
+		if output != input {
+			defer output.Close()
+		}
+		c.conn = WatchConnection(conn)
+		command.files = []*os.File{input, output}
 	}
-	dir, err := os.MkdirTemp("", "hrc-child-")
-	if err != nil {
-		return nil, err
-	}
-	c.socket = filepath.Join(dir, "rpc.sock")
-	listener, err := net.Listen("unix", c.socket)
-	if err != nil {
-		return nil, err
-	}
-	defer listener.Close()
-	abort := context.AfterFunc(startup, func() { listener.Close() })
-	defer abort()
-	command.Args = append(append([]string(nil), command.Args...), spec.SocketArgs(c.socket)...)
 	if err := c.startProcess(startup, command); err != nil {
-		return nil, err
-	}
-	// Interrupt Accept on early exit without touching buffered connection data.
-	stopExit := make(chan struct{})
-	defer close(stopExit)
-	go func() {
-		select {
-		case <-c.done:
-			listener.Close()
-		case <-stopExit:
-		}
-	}()
-	c.conn, err = listener.Accept()
-	if err != nil {
-		if startup.Err() != nil {
-			return nil, startup.Err()
-		}
-		select {
-		case <-c.done:
-			if c.exitErr != nil {
-				return nil, c.exitErr
-			}
-			return nil, errors.New("child exited before connecting")
-		default:
-			return nil, err
-		}
-	}
-	if err := startup.Err(); err != nil {
 		return nil, err
 	}
 	return c, nil

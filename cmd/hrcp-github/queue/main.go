@@ -8,29 +8,28 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"dimidiumlabs.io/hrc/internal/config"
+	"dimidiumlabs.io/hrc/internal/runtime"
 )
 
 func main() {
-	socket := flag.String("connect", "", "Parent RPC socket")
 	version := flag.Bool("version", false, "Show version")
 	flag.Parse()
 	if *version {
 		fmt.Println(config.Version)
 		return
 	}
-	if *socket == "" {
+	if flag.NArg() != 2 {
 		flag.Usage()
 		os.Exit(1)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", *socket)
+	conn, err := runtime.InheritedConnection(flag.Args())
 	if err == nil {
 		err = ServeQueue(ctx, conn)
 	}
