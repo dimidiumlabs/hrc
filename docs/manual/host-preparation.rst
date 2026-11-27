@@ -100,7 +100,7 @@ versions include ``tar``. Ansible supports SSH/PowerShell or WinRM and needs
 ``ansible.windows`` 3+ on the Ansible controller.
 
 Install Git and your toolchains for the service account, not just your login
-session. The supplied service runs as ``LocalService``; account-specific
+session. The supplied service runs as ``NT SERVICE\hrc``; account-specific
 credentials and settings from your desktop session will not automatically be
 available to jobs.
 

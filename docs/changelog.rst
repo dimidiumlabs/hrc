@@ -17,6 +17,9 @@ Added
 Changed
 ~~~~~~~
 
+- Run the Windows service as the dedicated virtual account ``NT SERVICE\hrc``
+  instead of ``LocalService``. Update service configuration and directory ACLs;
+  the Ansible install role migrates existing installations.
 - Reread GitHub credentials on authentication renewal; require exactly one of
   ``app``, ``pat`` or ``jwt``.
 - Re-license the GitHub provider, including its runner integration, tests, build

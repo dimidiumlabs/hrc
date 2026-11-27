@@ -20,7 +20,12 @@
 
 - name: Decide whether installation is required
   ansible.builtin.set_fact:
-    _hrc_install_needed: "{{ _hrc_installed.rc | default(1) != 0 or _hrc_installed.stdout | default('') | trim != _hrc_release_version or not _hrc_service.exists or not _hrc_runtime.stat.exists }}"
+    _hrc_install_needed: >-
+      {{ _hrc_installed.rc | default(1) != 0
+         or _hrc_installed.stdout | default('') | trim != _hrc_release_version
+         or not _hrc_service.exists
+         or not _hrc_runtime.stat.exists
+         or _hrc_service.services[0].username | lower != 'nt service\\hrc' }}
 
 - name: Report installation in check mode
   ansible.builtin.debug:
@@ -100,7 +105,6 @@
         _hrc_windows_acl:
           - {user: S-1-5-18, rights: FullControl}
           - {user: S-1-5-32-544, rights: FullControl}
-          - {user: S-1-5-19, rights: ReadAndExecute}
 
     - name: Remove inherited installation and data permissions
       ansible.windows.win_acl_inheritance:
@@ -110,18 +114,6 @@
       loop:
         - "{{ _hrc_path.bin }}"
         - "{{ _hrc_path.config }}"
-
-    - name: Allow LocalService to write state and logs
-      ansible.windows.win_acl:
-        path: "{{ item }}"
-        user: S-1-5-19
-        rights: Modify
-        type: allow
-        state: present
-        inherit: ContainerInherit, ObjectInherit
-      loop:
-        - "{{ _hrc_path.state }}"
-        - "{{ _hrc_path.logs }}"
 
     - name: Remove previous runtime
       ansible.windows.win_file:
@@ -167,6 +159,51 @@
           - install
       when: not _hrc_service.exists
       notify: hrc install restart
+
+    - name: Configure service identity
+      ansible.windows.win_service:
+        name: hrc
+        username: 'NT SERVICE\hrc'
+      notify: hrc install restart
+
+    # The virtual account can be resolved after the service is registered.
+    - name: Allow hrc to read installation and configuration
+      ansible.windows.win_acl:
+        path: "{{ item }}"
+        user: 'NT SERVICE\hrc'
+        rights: ReadAndExecute
+        type: allow
+        state: present
+        inherit: ContainerInherit, ObjectInherit
+      loop:
+        - "{{ _hrc_path.bin }}"
+        - "{{ _hrc_path.config }}"
+
+    - name: Allow hrc to write state and logs
+      ansible.windows.win_acl:
+        path: "{{ item }}"
+        user: 'NT SERVICE\hrc'
+        rights: Modify
+        type: allow
+        state: present
+        inherit: ContainerInherit, ObjectInherit
+      loop:
+        - "{{ _hrc_path.state }}"
+        - "{{ _hrc_path.logs }}"
+
+    - name: Remove previous LocalService permissions
+      ansible.windows.win_acl:
+        path: "{{ item.path }}"
+        user: S-1-5-19
+        rights: "{{ item.rights }}"
+        type: allow
+        state: absent
+        inherit: ContainerInherit, ObjectInherit
+      loop:
+        - {path: "{{ _hrc_path.bin }}", rights: ReadAndExecute}
+        - {path: "{{ _hrc_path.config }}", rights: ReadAndExecute}
+        - {path: "{{ _hrc_path.state }}", rights: Modify}
+        - {path: "{{ _hrc_path.logs }}", rights: Modify}
 
     - name: Mark completed runtime installation
       ansible.windows.win_copy:

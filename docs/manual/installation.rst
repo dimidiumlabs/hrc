@@ -306,16 +306,6 @@ Installation
 
       New-Item -ItemType Directory -Path $installRoot, "$installRoot\lib", $dataRoot, "$dataRoot\secrets", "$dataRoot\state", "$dataRoot\logs" | Out-Null
 
-   The service uses ``LocalService``: read/execute access, with write access only to
-   state and logs. SYSTEM and Administrators retain full access.
-
-   .. code-block:: powershell
-
-      icacls $installRoot /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-19:(OI)(CI)RX'
-      icacls $dataRoot /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-19:(OI)(CI)RX'
-      icacls "$dataRoot\state" /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-19:(OI)(CI)M'
-      icacls "$dataRoot\logs" /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-19:(OI)(CI)M'
-
    Copy the program files and fill the WinSW paths:
 
    .. code-block:: powershell
@@ -336,6 +326,16 @@ Installation
 
       Copy-Item C:\Downloads\WinSW-x64.exe -Destination "$installRoot\hrc-service.exe"
       & "$installRoot\hrc-service.exe" install
+
+   The service uses the passwordless virtual account ``NT SERVICE\hrc``: read/execute access, with write access only to
+   state and logs. SYSTEM and Administrators retain full access.
+
+   .. code-block:: powershell
+
+      icacls $installRoot /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' 'NT SERVICE\hrc:(OI)(CI)RX'
+      icacls $dataRoot /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' 'NT SERVICE\hrc:(OI)(CI)RX'
+      icacls "$dataRoot\state" /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' 'NT SERVICE\hrc:(OI)(CI)M'
+      icacls "$dataRoot\logs" /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' 'NT SERVICE\hrc:(OI)(CI)M'
 
    macOS
    ~~~~~

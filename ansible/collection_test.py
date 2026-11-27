@@ -10,6 +10,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import yaml
@@ -122,6 +123,13 @@ class CollectionTest(unittest.TestCase):
             self.root / "collection.tar.gz",
         )
         with tarfile.open(archive) as collection:
+            service = ET.fromstring(
+                collection.extractfile(
+                    "roles/install/templates/hrc-service.xml.j2"
+                ).read()
+            )
+            self.assertEqual(service.findtext("serviceaccount/domain"), "NT SERVICE")
+            self.assertEqual(service.findtext("serviceaccount/user"), "hrc")
             metadata = json.load(collection.extractfile("MANIFEST.json"))[
                 "collection_info"
             ]
