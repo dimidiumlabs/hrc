@@ -30,6 +30,7 @@ type Child struct {
 	started       chan struct{}
 	done          chan struct{}
 	cmd           *exec.Cmd
+	platform      childPlatform
 	launched      bool
 	group         *Group
 	input         io.WriteCloser

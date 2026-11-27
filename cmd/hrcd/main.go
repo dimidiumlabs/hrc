@@ -106,23 +106,24 @@ func (c SpaceConfig) NewSpace(dirs Directories, pool SlotConfig, capacity int, p
 		if root == "" {
 			root = filepath.Join(dirs.Spaces, string(spec.ID))
 		}
-		command := runtime.Command{Path: "hrcm", Stdout: os.Stdout, Stderr: os.Stderr}
-		if goruntime.GOOS != "windows" {
-			user, err := runtime.LookupUser("hrc")
+		account := "hrc"
+		if goruntime.GOOS == "windows" {
+			host, err := os.Hostname()
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("resolve local job account: %w", err)
 			}
-			if !filepath.IsAbs(root) {
-				root = filepath.Join(user.HomeDir, root)
-			}
-			command.User, command.Env, command.Dir = user, user.Environ(), user.HomeDir
-			command.Args = []string{"-dir", root}
-		} else {
-			var err error
-			command.Dir, err = filepath.Abs(root)
-			if err != nil {
-				return nil, err
-			}
+			account = host + `\hrc`
+		}
+		user, err := runtime.LookupUser(account)
+		if err != nil {
+			return nil, err
+		}
+		if !filepath.IsAbs(root) {
+			root = filepath.Join(user.HomeDir, root)
+		}
+		command := runtime.Command{
+			Path: "hrcm", User: user, Env: user.Environ(), Dir: user.HomeDir,
+			Args: []string{"-dir", root}, Stdout: os.Stdout, Stderr: os.Stderr,
 		}
 		slotConfig, err := pool.executionConfig()
 		if err != nil {

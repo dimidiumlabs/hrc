@@ -64,8 +64,19 @@ func prepareControl(command Command) (*inheritedControl, error) {
 	return newInheritedControl()
 }
 
+type childPlatform struct{}
+
 func userEnvironment(u *User) []string {
 	return append(os.Environ(), "HOME="+u.HomeDir, "USER="+u.Name, "LOGNAME="+u.Name)
+}
+func (p *Child) start(Command) error { return p.cmd.Start() }
+func (p *Child) waitProcess() error  { return p.cmd.Wait() }
+func (p *Child) finishIO() error     { return nil }
+func (p *Child) kill(deadline time.Time) error {
+	if p.cmd.Process == nil {
+		return nil
+	}
+	return killTrackedProcess(p.cmd.Process, deadline)
 }
 
 // InternalConnection opens the daemon's control channel.

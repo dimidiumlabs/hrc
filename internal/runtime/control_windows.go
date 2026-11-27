@@ -41,6 +41,9 @@ func prepareControl(command Command) (*childControl, error) {
 		return nil, err
 	}
 	sid := current.User.Sid.String()
+	if command.User != nil {
+		sid = command.User.sid
+	}
 	// Exclude FILE_CREATE_PIPE_INSTANCE from the client's read/write rights.
 	sd, err := windows.SecurityDescriptorFromString("D:P(A;;GA;;;SY)(A;;GA;;;" + current.User.Sid.String() + ")(A;;0x12019b;;;" + sid + ")")
 	if err != nil {
