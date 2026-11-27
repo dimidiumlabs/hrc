@@ -39,7 +39,6 @@
     _hrc_config_defaults:
       directories:
         runtime: "{{ _hrc_path.runtime }}"
-        spaces: jobs
         logs: "{{ _hrc_path.logs }}"
 
 - name: Install on this OS

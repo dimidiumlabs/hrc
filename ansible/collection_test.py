@@ -198,7 +198,7 @@ class CollectionTest(unittest.TestCase):
             },
             "hrc_config": {
                 "instanceId": "check",
-                "spaces": [{"id": "build"}],
+                "spaces": [{"id": "build", "user": "hrc-build"}],
                 "slots": [{"id": "workers", "space": "build"}],
                 "forges": [
                     {

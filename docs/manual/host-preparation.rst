@@ -16,12 +16,12 @@ Contents
 Common requirements
 -------------------
 
-- Use a host reserved for trusted jobs. Jobs run as the job account (``hrc`` on
-  Unix) and can access its credentials and persistent state.
+- Use a host reserved for trusted jobs. Jobs run as the configured space account
+  and can access its credentials and persistent state.
 - Install Git and the compilers, SDKs, and other tools your workflows need.
   The `first build example <./workflows.rst#first-build>`__ needs a C compiler;
   on Ubuntu/Debian, install ``git`` and ``build-essential``.
-- Make tools available to the job account (``hrc`` on Unix). Services do not
+- Make tools available to each configured space account. Services do not
   inherit your interactive shell's environment, PATH modifications, or credentials.
 - Allow outbound HTTPS to GitHub and the services your workflows use. hrc
   needs no inbound port to receive jobs. Ansible still needs its own management
@@ -38,7 +38,7 @@ Linux
 
 Linux archives require glibc; Alpine/musl hosts are not supported. The supplied
 service definitions support systemd and OpenRC. Container jobs, service
-containers, and container actions require Docker and permission for the ``hrc``
+containers, and container actions require Docker and permission for the space
 account to use it.
 
 Install the native Worker dependencies below before deploying hrc. Install
@@ -87,7 +87,7 @@ macOS
 
 macOS 13.5 or later needs no additional native Worker dependencies. Install Git
 and any build tools needed by your workflows, such as Xcode or Command Line
-Tools, separately. Ensure the ``hrc`` account can access them.
+Tools, separately. Ensure the space account can access them.
 
 Keep daemon state and job directory paths free of spaces. For Ansible,
 install Python on the host and arrange SSH and administrative access.
@@ -99,10 +99,11 @@ Use PowerShell as Administrator for manual installation. Current Windows
 versions include ``tar``. Ansible supports SSH/PowerShell or WinRM and needs
 ``ansible.windows`` 3+ on the Ansible controller.
 
-Install Git and your toolchains for the service account, not just your login
-session. The supplied service runs as ``NT SERVICE\hrc``; account-specific
-credentials and settings from your desktop session will not automatically be
-available to jobs.
+Install Git and your toolchains for the configured space accounts, not just
+your login session. The service and queues run as ``NT SERVICE\hrc``;
+the service requires ``SeTcbPrivilege`` and ``SeImpersonatePrivilege``,
+and space accounts require ``SeBatchLogonRight``. Jobs use the space account's
+profile, not your desktop session's credentials and settings.
 
 Antivirus scanning can affect large source trees and build output. If builds
 are slow, measure the impact before changing protection settings. Where your

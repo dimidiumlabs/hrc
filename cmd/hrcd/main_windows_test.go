@@ -32,28 +32,28 @@ func TestWindowsQueueKeepsServiceIdentity(t *testing.T) {
 	}
 }
 
-// The opt-in fixture supplies a local hrc account, a real sibling hrcm.exe,
-// launch privileges, and a parent directory writable by hrc but only readable
-// by the daemon. It must not point at a production workspace.
+// The opt-in fixture supplies an existing dedicated account, launch privileges
+// and a real sibling hrcm.exe. Its home must not contain production data.
 func TestWindowsSpaceUser(t *testing.T) {
-	parent := os.Getenv("HRC_TEST_WINDOWS_SPACE_ROOT")
-	if parent == "" {
+	name := os.Getenv("HRC_TEST_WINDOWS_USER")
+	if name == "" {
 		t.Skip("requires isolated privileged Windows space fixture")
 	}
-	host, err := os.Hostname()
+	user, err := runtime.LookupUser(name)
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, err := runtime.LookupUser(host + `\hrc`)
+	userJSON, err := json.Marshal(name)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var config Config
-	if err := json.Unmarshal([]byte(`{
+	document := `{
   "instanceId":"test",
-  "spaces":[{"id":"build","type":"host"}],
+  "spaces":[{"id":"build","type":"host","user":"SPACE_USER"}],
   "slots":[{"id":"workers","space":"build","type":"pgroup","quota":{"cpu":1,"memory":"128MiB"},"ephemeral":true}]
- }`), &config); err != nil {
+ }`
+	if err := json.Unmarshal([]byte(strings.Replace(document, `"SPACE_USER"`, string(userJSON), 1)), &config); err != nil {
 		t.Fatal(err)
 	}
 	if err := config.Validate(); err != nil {
@@ -69,7 +69,7 @@ func TestWindowsSpaceUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := config.Spaces[0].NewSpace(Directories{Spaces: parent}, config.Slots[0], 1, map[string][]byte{"test": workerConfig}, pool)
+	s, err := config.Spaces[0].NewSpace(config.Slots[0], 1, map[string][]byte{"test": workerConfig}, pool)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,10 +81,7 @@ func TestWindowsSpaceUser(t *testing.T) {
 	if s.Cwd() != user.HomeDir {
 		t.Fatalf("monitor cwd=%q, home=%q", s.Cwd(), user.HomeDir)
 	}
-	root := filepath.Join(parent, "build")
-	if _, err := os.Stat(root); !os.IsNotExist(err) {
-		t.Fatalf("workspace already exists: %v", err)
-	}
+	root := user.HomeDir
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	payload, err := json.Marshal(os.Getenv("HRC_TEST_WINDOWS_SECRET"))
@@ -127,20 +124,12 @@ func TestWindowsSpaceUser(t *testing.T) {
 	if _, err := s.State(ctx); err != nil {
 		t.Fatal(err)
 	}
-	sd, err := windows.GetNamedSecurityInfo(root, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
-	if err != nil {
-		t.Fatal(err)
-	}
-	owner, _, err := sd.Owner()
-	if err != nil {
-		t.Fatal(err)
-	}
 	want, _, _, err := windows.LookupSID("", user.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if owner.String() != want.String() || report.SID != want.String() || report.Owner != want.String() {
-		t.Fatalf("workspace owner=%s, worker=%s, want %s", owner, report.SID, want)
+	if report.SID != want.String() || report.Owner != want.String() {
+		t.Fatalf("worker=%s, work owner=%s, want %s", report.SID, report.Owner, want)
 	}
 }
 

@@ -99,32 +99,14 @@ type SpaceConfig struct {
 	}]
 }
 
-func (c SpaceConfig) NewSpace(dirs Directories, pool SlotConfig, capacity int, providers map[string][]byte, processes *runtime.Pool) (space.Space, error) {
+func (c SpaceConfig) NewSpace(pool SlotConfig, capacity int, providers map[string][]byte, processes *runtime.Pool) (space.Space, error) {
 	switch spec := c.Value().(type) {
 	case *spacehost.Config:
-		root := spec.Dir
-		if root == "" {
-			root = filepath.Join(dirs.Spaces, string(spec.ID))
-		}
-		account := "hrc"
-		if goruntime.GOOS == "windows" {
-			host, err := os.Hostname()
-			if err != nil {
-				return nil, fmt.Errorf("resolve local job account: %w", err)
-			}
-			account = host + `\hrc`
-		}
-		user, err := runtime.LookupUser(account)
+		user, err := runtime.LookupUser(spec.User)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("space %q: %w", spec.ID, err)
 		}
-		if !filepath.IsAbs(root) {
-			root = filepath.Join(user.HomeDir, root)
-		}
-		command := runtime.Command{
-			Path: "hrcm", User: user, Env: user.Environ(), Dir: user.HomeDir,
-			Args: []string{"-dir", root}, Stdout: os.Stdout, Stderr: os.Stderr,
-		}
+		command := runtime.Command{Path: "hrcm", Dir: user.HomeDir, User: user, Env: user.Environ(), Stdout: os.Stdout, Stderr: os.Stderr}
 		slotConfig, err := pool.executionConfig()
 		if err != nil {
 			return nil, err

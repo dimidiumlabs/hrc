@@ -24,23 +24,26 @@ func checkError(t *testing.T, err error, want string) {
 }
 
 const forgeJSON = `{"type":"github","url":"https://github.com/org","pat":{"type":"inline","value":"token"}}`
-const poolConfigJSON = `{"instanceId":"host","spaces":[{"id":"build","type":"host","dir":"work"}],"slots":[{"id":"workers","space":"build","type":"pgroup","quota":{"cpu":2,"memory":"8GiB"},"ephemeral":true}],"forges":[{"id":"forge","slot":"workers","type":"github","url":"https://github.com/org","pat":{"type":"inline","value":"token"}}]}`
+const poolConfigJSON = `{"instanceId":"host","spaces":[{"id":"build","type":"host","user":"builder"}],"slots":[{"id":"workers","space":"build","type":"pgroup","quota":{"cpu":2,"memory":"8GiB"},"ephemeral":true}],"forges":[{"id":"forge","slot":"workers","type":"github","url":"https://github.com/org","pat":{"type":"inline","value":"token"}}]}`
 
 func TestConfigValidate(t *testing.T) {
 	cfg := Config{}
 	checkError(t, cfg.Validate(), "instanceId: id is required")
 	cfg.InstanceID = "host"
 	checkError(t, cfg.Validate(), "")
-	if cfg.Directories != (Directories{Runtime: "./runner", Spaces: "./hrc/build", Logs: "./hrc/log"}) {
+	if cfg.Directories != (Directories{Runtime: "./runner", Logs: "./hrc/log"}) {
 		t.Fatal("invalid defaults")
 	}
-	cfg.Directories.Spaces = "/builds"
+	cfg.Directories.Runtime = "/runtime"
 	if err := json.Unmarshal([]byte(poolConfigJSON), &cfg); err != nil {
 		t.Fatal(err)
 	}
 	checkError(t, cfg.Validate(), "")
-	if cfg.Directories.Spaces != "/builds" {
+	if cfg.Directories.Runtime != "/runtime" {
 		t.Fatal("custom directory changed")
+	}
+	if cfg.Spaces[0].Base().User != "builder" {
+		t.Fatal("space user was not read from config")
 	}
 	// Several forges share one pool and its budget.
 	var second ForgeConfig
@@ -64,7 +67,7 @@ func TestConfigVariants(t *testing.T) {
 spaces:
   - id: build
     type: host
-    dir: work
+    user: builder
 slots:
   - id: workers
     space: build
@@ -82,6 +85,12 @@ forges:
 		{"json", ".json", poolConfigJSON, ""},
 		{"yaml", ".yaml", yaml, ""},
 		{"unknown forge", ".json", strings.Replace(poolConfigJSON, `"type":"github"`, `"type":"other"`, 1), "unknown configuration type"},
+		{"old spaces directory", ".json", strings.Replace(poolConfigJSON, `"instanceId":"host"`, `"instanceId":"host","directories":{"spaces":"jobs"}`, 1), "unknown"},
+		{"missing yaml user", ".yaml", strings.Replace(yaml, "    user: builder\n", "", 1), "user is required"},
+		{"null user", ".json", strings.Replace(poolConfigJSON, `"user":"builder"`, `"user":null`, 1), "user is required"},
+		{"empty user", ".json", strings.Replace(poolConfigJSON, `"user":"builder"`, `"user":""`, 1), "user is required"},
+		{"missing user", ".json", strings.Replace(poolConfigJSON, `,"user":"builder"`, ``, 1), "user is required"},
+		{"old space dir", ".json", strings.Replace(poolConfigJSON, `"user":"builder"`, `"dir":"work"`, 1), "unknown"},
 		{"unknown space", ".json", strings.Replace(poolConfigJSON, `"type":"host"`, `"type":"other"`, 1), "unknown configuration type"},
 		{"unknown slot", ".json", strings.Replace(poolConfigJSON, `"type":"pgroup"`, `"type":"other"`, 1), "unknown configuration type"},
 		{"unknown slot field", ".json", strings.Replace(poolConfigJSON, `"type":"pgroup"`, `"type":"pgroup","image":"x"`, 1), "unknown"},
@@ -94,7 +103,7 @@ forges:
 		{"bad pool id", ".json", strings.Replace(poolConfigJSON, `"id":"workers"`, `"id":"../bad"`, 1), "id"},
 		{"unknown pool", ".json", strings.Replace(poolConfigJSON, `"slot":"workers"`, `"slot":"missing"`, 1), "unknown slot pool"},
 		{"unknown placement", ".json", strings.Replace(poolConfigJSON, `"space":"build"`, `"space":"missing"`, 1), "unknown space"},
-		{"duplicate space", ".json", strings.Replace(poolConfigJSON, `"spaces":[`, `"spaces":[{"id":"build"},`, 1), "duplicate space"},
+		{"duplicate space", ".json", strings.Replace(poolConfigJSON, `"spaces":[`, `"spaces":[{"id":"build","user":"builder"},`, 1), "duplicate space"},
 		{"duplicate pool", ".json", strings.Replace(poolConfigJSON, `"slots":[`, `"slots":[{"id":"workers","space":"build"},`, 1), "duplicate slot pool"},
 		{"two pools", ".json", strings.Replace(poolConfigJSON, `"slots":[`, `"slots":[{"id":"other","space":"build"},`, 1), "multiple slot pools"},
 		{"null pool", ".json", strings.Replace(poolConfigJSON, `"slots":[`, `"slots":[null,`, 1), "object"},
