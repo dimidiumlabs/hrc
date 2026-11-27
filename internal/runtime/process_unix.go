@@ -6,18 +6,93 @@
 package runtime
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
 )
 
+func lookupUser(name string) (*User, error) {
+	account, err := user.Lookup(name)
+	if err != nil {
+		return nil, fmt.Errorf("user %q: %w", name, err)
+	}
+	parse := func(value string) (uint32, error) {
+		id, err := strconv.ParseUint(value, 10, 32)
+		return uint32(id), err
+	}
+	uid, err := parse(account.Uid)
+	if err != nil {
+		return nil, fmt.Errorf("user %q: Unix identity is not supported: %w", name, err)
+	}
+	if uid == 0 {
+		return nil, fmt.Errorf("user %q must not be root", name)
+	}
+	gid, err := parse(account.Gid)
+	if err != nil {
+		return nil, err
+	}
+	ids, err := account.GroupIds()
+	if err != nil {
+		return nil, fmt.Errorf("groups for %q: %w", name, err)
+	}
+	result := &User{Name: account.Username, HomeDir: account.HomeDir, uid: uid, gid: gid}
+	if !filepath.IsAbs(result.HomeDir) {
+		return nil, fmt.Errorf("user %q has no absolute home directory", name)
+	}
+	for _, id := range ids {
+		group, err := parse(id)
+		if err != nil {
+			return nil, err
+		}
+		result.groups = append(result.groups, group)
+	}
+	return result, nil
+}
+
+func prepareControl(command Command) (*inheritedControl, error) {
+	if command.Transport != InheritedTransport {
+		return nil, fmt.Errorf("%w: unsupported control transport %d", os.ErrInvalid, command.Transport)
+	}
+	return newInheritedControl()
+}
+
+type childPlatform struct{}
+
+func userEnvironment(u *User) []string {
+	return append(os.Environ(), "HOME="+u.HomeDir, "USER="+u.Name, "LOGNAME="+u.Name)
+}
+func (p *Child) start(Command) error { return p.cmd.Start() }
+func (p *Child) waitProcess() error  { return p.cmd.Wait() }
+func (p *Child) finishIO() error     { return nil }
+func (p *Child) kill(deadline time.Time) error {
+	if p.cmd.Process == nil {
+		return nil
+	}
+	return killTrackedProcess(p.cmd.Process, deadline)
+}
+
+// InternalConnection opens the daemon's control channel.
+func InternalConnection(_ context.Context, args []string) (Connection, error) {
+	return InheritedConnection(args)
+}
+
 // configure starts the child in a process group of its own.
-func (p *Child) configure(files []*os.File) error {
+func (p *Child) configure(files []*os.File, user *User) error {
 	p.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if user != nil {
+		if user.uid == 0 {
+			return errors.New("child user must not be root")
+		}
+		p.cmd.SysProcAttr.Credential = &syscall.Credential{Uid: user.uid, Gid: user.gid, Groups: user.groups}
+	}
 	p.cmd.ExtraFiles = files
 	for i := range files {
 		p.cmd.Args = append(p.cmd.Args, strconv.Itoa(3+i))

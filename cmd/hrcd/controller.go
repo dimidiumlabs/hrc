@@ -90,7 +90,7 @@ func NewController(cfg *Config, demands Demands, providers map[string][]byte, po
 		if slots == nil {
 			continue
 		}
-		environment, err := spec.NewSpace(cfg.Directories, *slots, demands.Capacity(string(spec.Base().ID)), providers, pool)
+		environment, err := spec.NewSpace(*slots, demands.Capacity(string(spec.Base().ID)), providers, pool)
 		if err != nil {
 			return nil, err
 		}

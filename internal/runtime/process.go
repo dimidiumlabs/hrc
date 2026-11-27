@@ -23,11 +23,26 @@ const (
 	PipeWrite
 )
 
+// ControlTransport selects the Pool child's control channel.
+type ControlTransport uint8
+
+const (
+	// InheritedTransport passes read/write descriptors as the final arguments.
+	InheritedTransport ControlTransport = iota
+	// NamedPipeTransport passes a local pipe path and parent PID instead.
+	// It is supported on Windows; the child must use InternalConnection.
+	NamedPipeTransport
+)
+
 // Command describes a direct child, optionally attached to a Group.
 // Pipes requests anonymous pipes; child descriptors/handles are appended to Args.
-// Child.Close closes their parent ends. Env follows exec.Cmd semantics.
+// Child.Close closes their parent ends. Env follows exec.Cmd semantics, except
+// Windows profile launches require nil Env to use the target profile environment.
+// User selects child credentials only; the launcher supplies its cwd and environment.
 type Command struct {
 	Group          *Group
+	Transport      ControlTransport
+	User           *User
 	Path, Dir      string
 	Args, Env      []string
 	Stdout, Stderr io.Writer
@@ -35,6 +50,23 @@ type Command struct {
 	files          []*os.File
 	Pipes          []PipeDirection
 }
+
+// User is a resolved host identity. Account selection belongs to the launcher,
+// not to a space or provider implementation.
+type User struct {
+	Name, HomeDir string
+	uid, gid      uint32
+	groups        []uint32
+	sid           string
+}
+
+// LookupUser resolves an existing account for child execution. Unix rejects root;
+// Windows rejects service identities.
+func LookupUser(name string) (*User, error) { return lookupUser(name) }
+
+// Environ returns inherited environment with Unix account variables replaced.
+// On Windows it returns nil so the profile launcher builds the environment.
+func (u *User) Environ() []string { return userEnvironment(u) }
 
 // StartChild starts a child without a control channel. The caller owns its cleanup.
 func StartChild(ctx context.Context, command Command) (*Child, error) {
@@ -101,7 +133,7 @@ func (p *Child) startProcess(ctx context.Context, config Command) error {
 		p.pipes = append(p.pipes, parent)
 	}
 	defer p.closeInherited()
-	if err := p.configure(append(childPipes, config.files...)); err != nil {
+	if err := p.configure(append(childPipes, config.files...), config.User); err != nil {
 		return fmt.Errorf("configure process: %w", err)
 	}
 	if config.Input {
@@ -111,7 +143,7 @@ func (p *Child) startProcess(ctx context.Context, config Command) error {
 			return err
 		}
 	}
-	if err := p.cmd.Start(); err != nil {
+	if err := p.start(config); err != nil {
 		return err
 	}
 	p.launched = true
@@ -126,13 +158,14 @@ func (p *Child) startProcess(ctx context.Context, config Command) error {
 func (p *Child) Pipes() []io.ReadWriteCloser { return p.pipes }
 func (p *Child) Stdin() io.WriteCloser       { return p.input }
 
-// reap is the only owner of exec.Cmd.Wait, including during startup rollback.
+// reap is the only owner of process waiting, including during startup rollback.
 func (p *Child) reap() {
-	p.waitErr = p.cmd.Wait()
+	p.waitErr = p.waitProcess()
 	var exit *exec.ExitError
 	if errors.As(p.waitErr, &exit) {
 		p.waitErr = nil
 	}
+	p.waitErr = errors.Join(p.waitErr, p.finishIO())
 	p.code = -1
 	if p.cmd.ProcessState != nil {
 		p.code = p.cmd.ProcessState.ExitCode()
@@ -154,12 +187,12 @@ func (p *Child) Wait() (int, error) {
 // Kill terminates only this child, without closing its Group or control channel.
 func (p *Child) Kill() error {
 	<-p.started
-	if p.cmd == nil || p.cmd.Process == nil {
+	if p.cmd == nil {
 		return nil
 	}
 	// Windows can report access denied for an already exiting process. Use
 	// the same termination confirmation as group cleanup before reporting it.
-	err := killTrackedProcess(p.cmd.Process, time.Now().Add(hrcconfig.ProcessExitTimeout))
+	err := p.kill(time.Now().Add(hrcconfig.ProcessExitTimeout))
 	if errors.Is(err, os.ErrProcessDone) {
 		return nil
 	}

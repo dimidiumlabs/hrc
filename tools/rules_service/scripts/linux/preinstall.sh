@@ -35,9 +35,9 @@ if ! getent group @GROUP@ >/dev/null; then
 fi
 if ! getent passwd @USER@ >/dev/null; then
   if command -v useradd >/dev/null 2>&1; then
-    useradd --system --gid @GROUP@ --home-dir @SHELL_STATE_DIR@ --no-create-home --shell "$nologin" @USER@
+    useradd --system --gid @GROUP@ --home-dir @SHELL_ACCOUNT_HOME@ --no-create-home --shell "$nologin" @USER@
   else
-    adduser -S -H -D -G @GROUP@ -h @SHELL_STATE_DIR@ -s "$nologin" @USER@
+    adduser -S -H -D -G @GROUP@ -h @SHELL_ACCOUNT_HOME@ -s "$nologin" @USER@
   fi
 fi
 
@@ -50,11 +50,21 @@ if [ "$account_uid" = 0 ] || [ "$account_gid" = 0 ] || [ "$account_group" != @GR
   exit 1
 fi
 
+# Move the child account out of the now-private daemon state directory.
+# shellcheck disable=SC2050 # Substituted when rendering the package hook.
+if [ '@STATE_USER@' = root ]; then
+  home=$(getent passwd @USER@ | cut -d: -f6)
+  if [ "$home" != @SHELL_ACCOUNT_HOME@ ]; then
+    usermod --home @SHELL_ACCOUNT_HOME@ @USER@
+  fi
+fi
+
 # Keep missing parents accessible despite the hook's private umask.
-(umask 022 && mkdir -p "$(dirname @SHELL_CONFIG_DIR@)" "$(dirname @SHELL_STATE_DIR@)" "$(dirname @SHELL_LOG_DIR@)")
+(umask 022 && mkdir -p "$(dirname @SHELL_CONFIG_DIR@)" "$(dirname @SHELL_STATE_DIR@)" "$(dirname @SHELL_LOG_DIR@)" "$(dirname @SHELL_ACCOUNT_HOME@)")
 
 # Do not recursively change ownership of existing secrets or build data.
 install -d -m 0750 -o root -g @GROUP@ @SHELL_CONFIG_DIR@
 install -d -m 0750 -o root -g @GROUP@ @SHELL_CONFIG_DIR@/secrets
-install -d -m 0700 -o @USER@ -g @GROUP@ @SHELL_STATE_DIR@
-install -d -m 0700 -o @USER@ -g @GROUP@ @SHELL_LOG_DIR@
+install -d -m 0700 -o @USER@ -g @GROUP@ @SHELL_ACCOUNT_HOME@
+install -d -m 0700 -o @STATE_USER@ -g @STATE_GROUP@ @SHELL_STATE_DIR@
+install -d -m 0700 -o @STATE_USER@ -g @STATE_GROUP@ @SHELL_LOG_DIR@

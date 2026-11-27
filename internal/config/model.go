@@ -41,4 +41,15 @@ type Space struct {
 	ID        ID        `json:"id"`
 	Type      string    `json:"type"`
 	Resources Resources `json:"resources"`
+	User      string    `json:"user"`
+}
+
+func (s *Space) Validate() error {
+	if err := s.ID.Validate(); err != nil {
+		return fmt.Errorf("space: %w", err)
+	}
+	if s.User == "" {
+		return fmt.Errorf("space %q: user is required", s.ID)
+	}
+	return s.Resources.Validate()
 }

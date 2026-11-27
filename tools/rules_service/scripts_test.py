@@ -28,6 +28,7 @@ class ScriptsTest(unittest.TestCase):
             config_dir = (
                 prefix + "/etc/fixture" if system == "darwin" else "/etc/fixture"
             )
+            privileged = arch == "amd64"
             paths = {
                 "config_dir": config_dir,
                 "config": config_dir + "/fixture.json",
@@ -38,6 +39,11 @@ class ScriptsTest(unittest.TestCase):
                 if system == "darwin"
                 else "/var/log/fixture",
             }
+            paths["home"] = (
+                ("/Users/fixture" if system == "darwin" else "/home/fixture")
+                if privileged
+                else paths["state_dir"]
+            )
             self.assertEqual(
                 set(scripts), HOOKS if system == "linux" else HOOKS - {"postremove.sh"}
             )
@@ -68,10 +74,28 @@ class ScriptsTest(unittest.TestCase):
                             {
                                 paths["config_dir"],
                                 paths["config_dir"] + "/secrets",
+                                paths["home"],
                                 paths["state_dir"],
                                 paths["log_dir"],
                             },
                         )
+                        commands = {
+                            shlex.split(line)[-1]: shlex.split(line)
+                            for line in text.splitlines()
+                            if line.startswith("install -d ")
+                        }
+                        for directory in ("state_dir", "log_dir", "home"):
+                            command = commands[paths[directory]]
+                            owner = (
+                                "root"
+                                if privileged and directory != "home"
+                                else "fixture"
+                            )
+                            group = (
+                                "0" if privileged and directory != "home" else "fixture"
+                            )
+                            self.assertEqual(command[command.index("-o") + 1], owner)
+                            self.assertEqual(command[command.index("-g") + 1], group)
                     elif name == "postinstall.sh":
                         condition = re.search(
                             r"^if \[ -f (.*) \]; then$", text, re.MULTILINE

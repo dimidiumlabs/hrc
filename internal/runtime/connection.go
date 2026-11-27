@@ -4,6 +4,7 @@
 package runtime
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -88,6 +89,41 @@ func (l *singleListener) Close() error {
 	return l.err
 }
 func (l *singleListener) Addr() net.Addr { return l.conn.LocalAddr() }
+
+// inheritedControl owns both ends until the child's endpoint is launched and
+// the parent connection is transferred to Child.
+type inheritedControl struct {
+	conn          Connection
+	input, output *os.File
+}
+
+func newInheritedControl() (*inheritedControl, error) {
+	conn, input, output, err := anonymousConnection()
+	if err != nil {
+		return nil, err
+	}
+	return &inheritedControl{WatchConnection(conn), input, output}, nil
+}
+func (c *inheritedControl) files() []*os.File {
+	// The launch ABI always supplies two descriptor arguments, including when
+	// both endpoints refer to the same socketpair file.
+	return []*os.File{c.input, c.output}
+}
+func (*inheritedControl) args() []string { return nil }
+func (c *inheritedControl) take(context.Context, *Child) (Connection, error) {
+	conn := c.conn
+	c.conn = nil
+	return conn, nil
+}
+func (c *inheritedControl) close() {
+	c.input.Close()
+	if c.output != c.input {
+		c.output.Close()
+	}
+	if c.conn != nil {
+		c.conn.Close()
+	}
+}
 
 // anonymousConnection prefers a socketpair, falling back only when unavailable.
 func anonymousConnection() (net.Conn, *os.File, *os.File, error) {

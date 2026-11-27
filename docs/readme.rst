@@ -33,7 +33,7 @@ acquisition and execution.
 .. warning::
 
    Jobs currently execute directly on the host, without isolation. Use hrc only
-   for trusted code: jobs share the machine and can access the service account's
+   for trusted code: jobs share the machine and can access their space account's
    credentials. An ephemeral runner registration does not make the host
    disposable or isolate one job from another.
 
@@ -49,6 +49,7 @@ These Ansible role variables describe a Linux host with reusable build slots:
      spaces:
        - id: build
          type: host
+         user: hrc-build
      slots:
        - id: workers
          space: build

@@ -30,7 +30,7 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	if len(os.Args) == 4 && os.Args[1] == "space-test-peer" {
-		conn, err := runtime.InheritedConnection(os.Args[2:])
+		conn, err := runtime.InternalConnection(context.Background(), os.Args[2:])
 		if err != nil {
 			os.Exit(20)
 		}
@@ -62,7 +62,7 @@ func testSpace(t *testing.T) *SpaceHost {
 	// Exercise sibling lookup with the same minimal PATH as a service.
 	t.Setenv("PATH", "")
 	config := &space.Config{Capacity: 2}
-	s, err := New("test-space", filepath.Join(t.TempDir(), "space"), []string{filepath.Base(self), "space-test-peer"}, config, &runtime.Pool{})
+	s, err := New("test-space", runtime.Command{Path: filepath.Base(self), Args: []string{"space-test-peer"}, Dir: t.TempDir()}, config, &runtime.Pool{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,8 +163,8 @@ func TestLazyStartupAndLifecycle(t *testing.T) {
 	if state, err := s.State(t.Context()); err != nil || state != (space.State{}) {
 		t.Fatalf("idle state: %+v %v", state, err)
 	}
-	if _, err := os.Stat(s.Cwd()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("inspection created workspace")
+	if entries, err := os.ReadDir(s.Cwd()); err != nil || len(entries) != 0 {
+		t.Fatal("inspection prepared the space home")
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -261,7 +261,7 @@ func TestCleanupMakesHostRestartable(t *testing.T) {
 
 func TestCanceledStartupCleansUpBeforeIdle(t *testing.T) {
 	s := testSpace(t)
-	s.args[1] = "space-test-stall"
+	s.command.Args[0] = "space-test-stall"
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	completed := make(chan error, 1)
@@ -282,8 +282,10 @@ func TestCanceledStartupCleansUpBeforeIdle(t *testing.T) {
 		case <-time.After(time.Millisecond):
 		}
 	}
-	if s.Status() != space.Starting {
-		t.Fatal("uninitialized monitor did not report Starting")
+	// Named pipes connect after launch; inherited channels are ready already.
+	// Until Init, the monitor can be in either startup phase.
+	if status := s.Status(); status != space.Connecting && status != space.Starting {
+		t.Fatalf("uninitialized monitor reported %v", status)
 	}
 	cancel()
 	if err := <-completed; !errors.Is(err, context.Canceled) {
@@ -296,7 +298,7 @@ func TestCanceledStartupCleansUpBeforeIdle(t *testing.T) {
 		t.Fatal("Idle published with partial startup resources retained")
 	}
 	// Rollback must leave the space usable by a subsequent job.
-	s.args[1] = "space-test-peer"
+	s.command.Args[0] = "space-test-peer"
 	run, err := s.Run(t.Context(), &testJob{kind: "test"})
 	if err != nil {
 		t.Fatal(err)
@@ -311,7 +313,7 @@ func TestCanceledStartupCleansUpBeforeIdle(t *testing.T) {
 
 func TestProcessExitBeforeConnectionFailsPromptly(t *testing.T) {
 	s := testSpace(t)
-	s.args[1] = "space-test-exit"
+	s.command.Args[0] = "space-test-exit"
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	if _, err := s.Run(ctx, &testJob{kind: "test"}); !errors.Is(err, space.ErrUnavailable) {
@@ -320,7 +322,7 @@ func TestProcessExitBeforeConnectionFailsPromptly(t *testing.T) {
 	if ctx.Err() != nil || s.Status() != space.Broken || s.child != nil {
 		t.Fatalf("early exit waited for timeout or retained child: %v %v", s.Status(), s.Err())
 	}
-	s.args[1] = "space-test-peer"
+	s.command.Args[0] = "space-test-peer"
 	run, err := s.Run(ctx, &testJob{kind: "test"})
 	if err != nil {
 		t.Fatal(err)
@@ -332,8 +334,8 @@ func TestProcessExitBeforeConnectionFailsPromptly(t *testing.T) {
 
 func TestStartupFailureCanRecover(t *testing.T) {
 	s := testSpace(t)
-	command := s.args[0]
-	s.args[0] = filepath.Join(t.TempDir(), "missing-hrcm")
+	command := s.command.Path
+	s.command.Path = filepath.Join(t.TempDir(), "missing-hrcm")
 	if _, err := s.Run(t.Context(), &testJob{kind: "test"}); !errors.Is(err, space.ErrUnavailable) {
 		t.Fatalf("startup failure: %v", err)
 	}
@@ -352,7 +354,7 @@ func TestStartupFailureCanRecover(t *testing.T) {
 	if s.Status() != space.Idle || s.Err() != nil || s.child != nil {
 		t.Fatal("canceled recovery did not clean the failed generation before Idle")
 	}
-	s.args[0] = command
+	s.command.Path = command
 	run, err := s.Run(t.Context(), &testJob{kind: "test"})
 	if err != nil {
 		t.Fatal(err)

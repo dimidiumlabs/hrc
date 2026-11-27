@@ -13,8 +13,8 @@
   <log mode="roll" />
   <startmode>Manual</startmode>
   <serviceaccount>
-    <domain>NT AUTHORITY</domain>
-    <user>LocalService</user>
+    <domain>NT SERVICE</domain>
+    <user>@NAME@</user>
   </serviceaccount>
   <onfailure action="restart" delay="10 sec" />
   <stoptimeout>60 sec</stoptimeout>

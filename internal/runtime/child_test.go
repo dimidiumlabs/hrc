@@ -18,7 +18,7 @@ import (
 
 func childTestMain() {
 	if len(os.Args) == 4 && os.Args[1] == "hrc-stdio-child" {
-		conn, err := InheritedConnection(os.Args[2:])
+		conn, err := InternalConnection(context.Background(), os.Args[2:])
 		if err != nil {
 			os.Exit(20)
 		}

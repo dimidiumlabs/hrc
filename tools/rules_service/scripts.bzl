@@ -6,7 +6,7 @@
 def _shell(value):
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
-def script_substitutions(name, user, group, description, prefix, os, arch):
+def script_substitutions(name, user, group, description, prefix, os, arch, privileged = False):
     """Render target metadata and shell-quoted paths for platform-specific hooks.
 
     Args:
@@ -17,6 +17,7 @@ def script_substitutions(name, user, group, description, prefix, os, arch):
         prefix: Absolute Unix installation prefix.
         os: Target operating system: linux or darwin.
         arch: Target architecture: amd64 or arm64.
+        privileged: Keep daemon state and logs owned by root.
 
     Returns:
         Template substitutions with shell-quoted paths and description.
@@ -30,10 +31,13 @@ def script_substitutions(name, user, group, description, prefix, os, arch):
         "@GROUP@": group,
         "@NAME@": name,
         "@OS@": os,
+        "@SHELL_ACCOUNT_HOME@": _shell((("/Users/" if os == "darwin" else "/home/") + user) if privileged else state_dir),
         "@SHELL_CONFIG@": _shell(config_dir + "/" + name + ".json"),
         "@SHELL_CONFIG_DIR@": _shell(config_dir),
         "@SHELL_DESCRIPTION@": _shell(description),
         "@SHELL_LOG_DIR@": _shell(log_dir),
         "@SHELL_STATE_DIR@": _shell(state_dir),
+        "@STATE_GROUP@": "0" if privileged else group,
+        "@STATE_USER@": "root" if privileged else user,
         "@USER@": user,
     }

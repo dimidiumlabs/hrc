@@ -79,6 +79,7 @@ URL. Prepare the token using `GitHub access <./github-auth.rst>`__.
              spaces:
                - id: build
                  type: host
+                 user: hrc-build
              slots:
                - id: workers
                  space: build
@@ -113,7 +114,7 @@ For GitHub App authentication, substitute the ``app`` mapping and private key
 described in `GitHub access <./github-auth.rst#github-app>`__.
 Choose a distinct host ID and quotas appropriate for each machine.
 
-The role supplies the resource and working directory paths, writes configuration and
+The role supplies the runtime and log paths, writes configuration and
 secrets without logging their values, and enables and starts the service.
 Installation or configuration changes restart it, cancelling active jobs and
 cleaning up workspaces. ``--check`` does not install or stop anything;
@@ -306,16 +307,6 @@ Installation
 
       New-Item -ItemType Directory -Path $installRoot, "$installRoot\lib", $dataRoot, "$dataRoot\secrets", "$dataRoot\state", "$dataRoot\logs" | Out-Null
 
-   The service uses ``LocalService``: read/execute access, with write access only to
-   state and logs. SYSTEM and Administrators retain full access.
-
-   .. code-block:: powershell
-
-      icacls $installRoot /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-19:(OI)(CI)RX'
-      icacls $dataRoot /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-19:(OI)(CI)RX'
-      icacls "$dataRoot\state" /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-19:(OI)(CI)M'
-      icacls "$dataRoot\logs" /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-19:(OI)(CI)M'
-
    Copy the program files and fill the WinSW paths:
 
    .. code-block:: powershell
@@ -336,6 +327,18 @@ Installation
 
       Copy-Item C:\Downloads\WinSW-x64.exe -Destination "$installRoot\hrc-service.exe"
       & "$installRoot\hrc-service.exe" install
+
+   The service and queues use the virtual account ``NT SERVICE\hrc``;
+   spaces use the existing accounts named by ``spaces[].user``, which need
+   read/execute access to the installation. SYSTEM and Administrators retain
+   full access.
+
+   .. code-block:: powershell
+
+      icacls $installRoot /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' 'NT SERVICE\hrc:(OI)(CI)RX'
+      icacls $dataRoot /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' 'NT SERVICE\hrc:(OI)(CI)RX'
+      icacls "$dataRoot\state" /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' 'NT SERVICE\hrc:(OI)(CI)M'
+      icacls "$dataRoot\logs" /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' 'NT SERVICE\hrc:(OI)(CI)M'
 
    macOS
    ~~~~~
@@ -400,11 +403,10 @@ substitute the ``app`` mapping and private key from
       $dataRoot = "$env:ProgramData\hrc"
       $config = @{
           instanceId = 'build-01'
-          spaces = @(@{ id = 'build'; type = 'host' })
+          spaces = @(@{ id = 'build'; type = 'host'; user = 'hrc-build' })
           slots = @(@{ id = 'workers'; space = 'build'; type = 'pgroup'; ephemeral = $true; quota = @{ cpu = 1; memory = '1GiB' } })
           directories = @{
               runtime = "$installRoot\lib\hrc"
-              spaces = 'jobs'
               logs = "$dataRoot\logs"
           }
           forges = @(
@@ -434,11 +436,10 @@ substitute the ``app`` mapping and private key from
       sudo tee "$config_dir/hrc.json" > /dev/null <<EOF
       {
         "instanceId": "build-01",
-        "spaces": [{"id": "build", "type": "host"}],
+        "spaces": [{"id": "build", "type": "host", "user": "hrc-build"}],
         "slots": [{"id": "workers", "space": "build", "type": "pgroup", "ephemeral": true, "quota": {"cpu": 1, "memory": "1GiB"}}],
         "directories": {
           "runtime": "/usr/local/lib/hrc",
-          "spaces": "jobs",
           "logs": "$log_dir"
         },
         "forges": [{

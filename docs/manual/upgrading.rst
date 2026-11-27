@@ -53,8 +53,23 @@ then run the commands below from its extracted directory.
       Remove-Item "$installRoot\lib\hrc" -Recurse -Force
 
    Repeat the `program file and WinSW XML copy commands
-   <./installation.rst#installation-1>`__, then ``Start-Service hrc``.
-   Do not recreate directories or configuration, or register WinSW again.
+   <./installation.rst#installation-1>`__. Do not recreate directories or
+   configuration, or register WinSW again.
+
+   When upgrading from ``LocalService``, migrate the stopped service to its
+   dedicated virtual account and remove the previous account's grants:
+
+   .. code-block:: powershell
+
+      sc.exe config hrc obj= 'NT SERVICE\hrc'
+      icacls $installRoot /remove:g '*S-1-5-19'
+      icacls $dataRoot /remove:g '*S-1-5-19'
+      icacls "$dataRoot\state" /remove:g '*S-1-5-19'
+      icacls "$dataRoot\logs" /remove:g '*S-1-5-19'
+
+   Apply the directory ACL commands from the installation instructions for
+   ``NT SERVICE\hrc``, then run ``Start-Service hrc``. Changing the WinSW XML
+   alone does not change the account of an already registered service.
 
    macOS
    ~~~~~

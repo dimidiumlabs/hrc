@@ -2,13 +2,13 @@
   "instanceId": "build-01",
   "directories": {
     "logs": "",
-    "spaces": "",
     "runtime": ""
   },
   "spaces": [
     {
       "id": "build",
-      "type": "host"
+      "type": "host",
+      "user": "hrc-build"
     }
   ],
   "slots": [

@@ -29,6 +29,7 @@ filegroup(
 # The binary is a placeholder input; it is never executed or packaged by tests.
 service(
     name = "fixture_linux_amd64",
+    privileged = True,
     service = "fixture",
     description = "Fixture's runner \"service\"",
     prefix = "/opt/fixture's prefix",
@@ -51,6 +52,7 @@ service(
 
 service(
     name = "fixture_darwin_amd64",
+    privileged = True,
     service = "fixture",
     description = "Fixture's runner \"service\"",
     prefix = "/opt/fixture's prefix",

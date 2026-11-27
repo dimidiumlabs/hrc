@@ -11,7 +11,6 @@ import (
 
 type Directories struct {
 	Logs    string `json:"logs"`
-	Spaces  string `json:"spaces"`
 	Runtime string `json:"runtime"`
 }
 
@@ -26,9 +25,6 @@ type Config struct {
 func (c *Config) defaults() {
 	if c.Directories.Runtime == "" {
 		c.Directories.Runtime = "./runner"
-	}
-	if c.Directories.Spaces == "" {
-		c.Directories.Spaces = "./hrc/build"
 	}
 	if c.Directories.Logs == "" {
 		c.Directories.Logs = "./hrc/log"

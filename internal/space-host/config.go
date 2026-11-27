@@ -12,8 +12,6 @@ import (
 // Config describes a host space.
 type Config struct {
 	config.Space
-
-	Dir string `json:"dir"`
 }
 
 func (c *Config) Validate() error {
@@ -23,11 +21,5 @@ func (c *Config) Validate() error {
 	if c.Type != "host" {
 		return fmt.Errorf("unknown space type %q", c.Type)
 	}
-	if err := c.ID.Validate(); err != nil {
-		return fmt.Errorf("space: %w", err)
-	}
-	if err := c.Resources.Validate(); err != nil {
-		return err
-	}
-	return nil
+	return c.Space.Validate()
 }

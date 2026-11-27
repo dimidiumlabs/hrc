@@ -12,7 +12,7 @@ must match ``[A-Za-z][A-Za-z0-9_-]*``: an ASCII letter first, then ASCII letters
 digits, underscores or hyphens.
 
 For example, a manual YAML config can be started with
-``hrcd -config hrc.yaml``:
+``sudo hrcd -config hrc.yaml`` on Unix:
 
 .. code-block:: yaml
 
@@ -20,6 +20,7 @@ For example, a manual YAML config can be started with
    spaces:
      - id: build
        type: host
+       user: hrc-build
        resources: {cpu: 8, memory: 16GiB}
    slots:
      - id: workers
@@ -69,16 +70,14 @@ Host settings
    * - ``directories.runtime``
      - ``./runner``
      - Shared read-only Worker resources.
-   * - ``directories.spaces``
-     - ``./hrc/build``
-     - Parent of space directories and their slot workspaces.
    * - ``directories.logs``
      - ``./hrc/log``
      - Parent of per-job diagnostics under ``jobs/``.
 
-Relative paths use the daemon's working directory, not the directory
-containing the config file. The supplied services use their state directory as
-working directory. Keep state and job directory paths free of spaces on macOS.
+Relative paths use the daemon's working directory, not the config file's
+directory, except on Unix where provider credential file paths use the ``hrc``
+account's home. The supplied services use their state directory
+as working directory. Keep state and job directory paths free of spaces on macOS.
 The Ansible role supplies installation-specific defaults for these paths;
 the table above describes the daemon's own defaults.
 
@@ -96,6 +95,7 @@ is not started. The supported implementations are host spaces and process-group 
    spaces:
      - id: build
        type: host
+       user: hrc-build
        resources:
          cpu: 8
          memory: 16GiB
@@ -119,11 +119,11 @@ is not started. The supported implementations are host spaces and process-group 
 ``resources`` is the space budget, and pool ``quota`` is the allocation per slot.
 An omitted budget dimension uses the full host capacity.
 Space budgets must fit together within that capacity. Values are fixed until
-restart. The optional ``dir`` defaults to ``directories.spaces/ID``. The monitor
-uses its working directory as the space root and prepares ``cache/``, ``tmp/``,
-``log/slots/``, ``log/jobs/``, and ``slots/``. Each slot has ``home/``, ``cache/``,
+restart. Each space requires ``user``, an existing host account. The monitor
+runs as that user in its home directory and prepares ``cache/``, ``tmp/``,
+``log/slots/``, ``log/jobs/``, and ``slots/``. Each slot has ``cache/``,
 ``tmp/``, and ``work/`` under ``slots/NAME/``; workers start in ``work/``.
-Slot names have the form ``slt-N-XXXXXX``. At startup the monitor clears
+Slot names have the form ``slt-XXXXXX``. At startup the monitor clears
 ``tmp/`` and old ``slots/``; before each job it clears that slot's ``tmp/``.
 Space cache and logs survive these cleanups. Job diagnostics go to
 ``log/jobs/JOB_ID/``; ``log/slots/NAME/`` survives slot destruction.
@@ -231,7 +231,7 @@ Secrets
    * - ``type``
      - Meaning of ``value``
    * - ``file``
-     - Path to a file readable by the service account.
+     - Path to a file readable by the queue account (``hrc`` on Unix).
    * - ``env``
      - Name of an environment variable in the daemon's environment.
    * - ``inline``
@@ -248,8 +248,8 @@ than 30 seconds remaining are reread regardless of TTL.
 
 Leading and trailing whitespace is removed from secret values; an empty secret
 is an error. Services do not inherit your interactive shell's ``GITHUB_TOKEN``.
-Jobs execute as the service account and can access its credentials; secret files
-are not an isolation boundary between hrc and build code.
+Jobs execute as the configured space account and can access that account's
+credentials and readable secret files.
 
 Ansible variables
 -----------------
@@ -273,7 +273,7 @@ Ansible variables
      - ``false``
      - Remove role only: also delete configuration, secrets, state, and logs at default locations.
 
-The install role supplies ``directories.runtime``, ``directories.spaces``, and ``directories.logs``; ``hrc_config`` can override them. Other fields pass through unchanged.
+The install role supplies ``directories.runtime`` and ``directories.logs``; ``hrc_config`` can override them. Other fields pass through unchanged.
 Secret filenames may contain letters, digits, underscores, dots, and hyphens,
 and must start with a letter, digit, or underscore. Omitted secret files are
 retained; remove or revoke credentials explicitly.

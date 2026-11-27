@@ -21,6 +21,7 @@ service(
     arch = ARCH,
     bin = "//cmd/hrcd:hrcd",
     executable = "hrcd",
+    privileged = True,
     args = [
         "-config",
         "{config}",

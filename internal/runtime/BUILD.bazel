@@ -33,4 +33,10 @@ go_test(
     size = "small",
     srcs = glob(["*_test.go"]),
     embed = [":runtime"],
+    deps = select({
+        "@rules_go//go/platform:windows": [
+            "@org_golang_x_sys//windows/registry",
+        ],
+        "//conditions:default": [],
+    }),
 )

@@ -32,7 +32,16 @@ func protectControlFiles(input, output *os.File) error {
 func socketPair() (net.Conn, *os.File, error) { return nil, nil, nil }
 
 // configure gives the child a console of its own.
-func (p *Child) configure(files []*os.File) error {
+func (p *Child) configure(files []*os.File, user *User) error {
+	if user != nil {
+		if len(files) != 0 {
+			return errors.New("profile launches cannot inherit extra handles")
+		}
+		if p.cmd.Env != nil {
+			return errors.New("custom environment is not supported for Windows profile launches")
+		}
+		return nil
+	}
 	// The runner cancels a step with GenerateConsoleCtrlEvent on the step's
 	// console, which reaches every process attached to it. A console of its own
 	// keeps that Ctrl+C away from the parent and the other Workers.

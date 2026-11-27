@@ -13,10 +13,9 @@ import (
 	"time"
 )
 
-// ChildSpec describes a direct child with an inherited control channel.
-// Runtime does not assume gRPC or interpret the child's command-line arguments.
-// The child receives read and write fd/handle values as its final two positional
-// arguments, after any Command.Pipes descriptors. Stdio remains independent.
+// ChildSpec describes a direct child with a control channel.
+// Runtime does not assume gRPC. The selected transport supplies the final two
+// positional arguments, after any Command.Pipes descriptors. Stdio is independent.
 type ChildSpec struct {
 	Command        Command
 	StartupTimeout time.Duration
@@ -31,6 +30,7 @@ type Child struct {
 	started       chan struct{}
 	done          chan struct{}
 	cmd           *exec.Cmd
+	platform      childPlatform
 	launched      bool
 	group         *Group
 	input         io.WriteCloser

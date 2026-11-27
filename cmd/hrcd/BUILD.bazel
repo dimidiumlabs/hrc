@@ -49,6 +49,10 @@ go_test(
     deps = [
         "//internal/config",
         "//internal/provider",
+        "//internal/runtime",
         "//internal/space",
-    ],
+    ] + select({
+        "@rules_go//go/platform:windows": ["@org_golang_x_sys//windows"],
+        "//conditions:default": [],
+    }),
 )
