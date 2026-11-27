@@ -30,7 +30,7 @@ func (p *Pool) Children() []*Child {
 	return children
 }
 
-// Start launches a child with an inherited control channel.
+// Start launches a child with the selected control transport.
 func (p *Pool) Start(ctx context.Context, spec ChildSpec) (*Child, error) {
 	return launchChild(ctx, spec, p)
 }
@@ -74,18 +74,21 @@ func launchChild(ctx context.Context, spec ChildSpec, p *Pool) (child *Child, er
 	command := spec.Command
 	// Pool children always have a control channel; StartChild is a bare launch.
 	if p != nil {
-		conn, input, output, err := anonymousConnection()
+		control, err := prepareControl(command)
 		if err != nil {
 			return nil, err
 		}
-		defer input.Close()
-		if output != input {
-			defer output.Close()
+		defer control.close()
+		command.files = control.files()
+		command.Args = append(append([]string(nil), command.Args...), control.args()...)
+		if err := c.startProcess(startup, command); err != nil {
+			return nil, err
 		}
-		c.conn = WatchConnection(conn)
-		command.files = []*os.File{input, output}
-	}
-	if err := c.startProcess(startup, command); err != nil {
+		c.conn, err = control.take(startup, c)
+		if err != nil {
+			return nil, err
+		}
+	} else if err := c.startProcess(startup, command); err != nil {
 		return nil, err
 	}
 	return c, nil

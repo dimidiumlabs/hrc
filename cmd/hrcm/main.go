@@ -51,7 +51,7 @@ func main() {
 }
 
 func serve(ctx context.Context, args []string) (err error) {
-	conn, err := runtime.InheritedConnection(args)
+	conn, err := runtime.InternalConnection(ctx, args)
 	if err != nil {
 		return fmt.Errorf("Coudn't connect to admin sock: %w", err)
 	}

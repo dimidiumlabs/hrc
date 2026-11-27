@@ -6,7 +6,9 @@
 package runtime
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -14,6 +16,18 @@ import (
 	"syscall"
 	"time"
 )
+
+func prepareControl(command Command) (*inheritedControl, error) {
+	if command.Transport != InheritedTransport {
+		return nil, fmt.Errorf("%w: unsupported control transport %d", os.ErrInvalid, command.Transport)
+	}
+	return newInheritedControl()
+}
+
+// InternalConnection opens the daemon's control channel.
+func InternalConnection(_ context.Context, args []string) (Connection, error) {
+	return InheritedConnection(args)
+}
 
 // configure starts the child in a process group of its own.
 func (p *Child) configure(files []*os.File) error {

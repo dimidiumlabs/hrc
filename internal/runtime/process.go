@@ -23,11 +23,23 @@ const (
 	PipeWrite
 )
 
+// ControlTransport selects the Pool child's control channel.
+type ControlTransport uint8
+
+const (
+	// InheritedTransport passes read/write descriptors as the final arguments.
+	InheritedTransport ControlTransport = iota
+	// NamedPipeTransport passes a local pipe path and parent PID instead.
+	// It is supported on Windows; the child must use InternalConnection.
+	NamedPipeTransport
+)
+
 // Command describes a direct child, optionally attached to a Group.
 // Pipes requests anonymous pipes; child descriptors/handles are appended to Args.
 // Child.Close closes their parent ends. Env follows exec.Cmd semantics.
 type Command struct {
 	Group          *Group
+	Transport      ControlTransport
 	Path, Dir      string
 	Args, Env      []string
 	Stdout, Stderr io.Writer

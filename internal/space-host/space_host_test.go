@@ -30,7 +30,7 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	if len(os.Args) == 4 && os.Args[1] == "space-test-peer" {
-		conn, err := runtime.InheritedConnection(os.Args[2:])
+		conn, err := runtime.InternalConnection(context.Background(), os.Args[2:])
 		if err != nil {
 			os.Exit(20)
 		}
@@ -282,8 +282,10 @@ func TestCanceledStartupCleansUpBeforeIdle(t *testing.T) {
 		case <-time.After(time.Millisecond):
 		}
 	}
-	if s.Status() != space.Starting {
-		t.Fatal("uninitialized monitor did not report Starting")
+	// Named pipes connect after launch; inherited channels are ready already.
+	// Until Init, the monitor can be in either startup phase.
+	if status := s.Status(); status != space.Connecting && status != space.Starting {
+		t.Fatalf("uninitialized monitor reported %v", status)
 	}
 	cancel()
 	if err := <-completed; !errors.Is(err, context.Canceled) {

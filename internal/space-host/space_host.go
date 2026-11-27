@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"slices"
 	"sync"
 
@@ -131,9 +132,13 @@ func (s *SpaceHost) start(ctx context.Context) error {
 	}
 	startup, cancel := context.WithTimeout(ctx, hrcconfig.ProcessStartTimeout)
 	defer cancel()
+	command := runtime.Command{Path: s.args[0], Args: s.args[1:], Dir: s.rootDir, Stdout: os.Stdout, Stderr: os.Stderr}
+	if goruntime.GOOS == "windows" {
+		command.Transport = runtime.NamedPipeTransport
+	}
 	var err error
 	s.child, err = s.pool.Start(startup, runtime.ChildSpec{
-		Command: runtime.Command{Path: s.args[0], Args: s.args[1:], Dir: s.rootDir, Stdout: os.Stdout, Stderr: os.Stderr},
+		Command: command,
 	})
 	if err != nil {
 		return fmt.Errorf("start monitor: %w", err)
