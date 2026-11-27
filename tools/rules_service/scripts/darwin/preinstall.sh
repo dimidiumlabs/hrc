@@ -52,17 +52,17 @@ if ! dscl . -read /Users/@USER@ >/dev/null 2>&1; then
   dscl . -create /Users/@USER@ UniqueID "$uid"
   dscl . -create /Users/@USER@ PrimaryGroupID "$gid"
   dscl . -create /Users/@USER@ RealName @SHELL_DESCRIPTION@
-  dscl . -create /Users/@USER@ NFSHomeDirectory @SHELL_STATE_DIR@
+  dscl . -create /Users/@USER@ NFSHomeDirectory @SHELL_ACCOUNT_HOME@
   dscl . -create /Users/@USER@ UserShell /usr/bin/false
   dscl . -create /Users/@USER@ Password '*'
   dscl . -create /Users/@USER@ IsHidden 1
 fi
 
-# Move the account's home out of the legacy /Library/Application Support path.
+# Keep the child account's home separate from privileged daemon state.
 # dscl moves a value containing spaces to the next line.
 home=$(dscl . -read /Users/@USER@ NFSHomeDirectory | sed '1s/^NFSHomeDirectory://' | tr -d '\n' | sed 's/^ *//')
-if [ "$home" != @SHELL_STATE_DIR@ ]; then
-  dscl . -create /Users/@USER@ NFSHomeDirectory @SHELL_STATE_DIR@
+if [ "$home" != @SHELL_ACCOUNT_HOME@ ]; then
+  dscl . -create /Users/@USER@ NFSHomeDirectory @SHELL_ACCOUNT_HOME@
 fi
 
 # Refuse privileged identities and a conflicting primary group.
@@ -75,10 +75,11 @@ if [ "$account_uid" = 0 ] || [ "$account_gid" = 0 ] || [ "$account_group" != @GR
 fi
 
 # Keep missing parents accessible despite the hook's private umask.
-(umask 022 && mkdir -p "$(dirname @SHELL_CONFIG_DIR@)" "$(dirname @SHELL_STATE_DIR@)" "$(dirname @SHELL_LOG_DIR@)")
+(umask 022 && mkdir -p "$(dirname @SHELL_CONFIG_DIR@)" "$(dirname @SHELL_STATE_DIR@)" "$(dirname @SHELL_LOG_DIR@)" "$(dirname @SHELL_ACCOUNT_HOME@)")
 
 # Do not recursively change ownership of existing secrets or build data.
 install -d -m 0750 -o root -g @GROUP@ @SHELL_CONFIG_DIR@
 install -d -m 0750 -o root -g @GROUP@ @SHELL_CONFIG_DIR@/secrets
-install -d -m 0700 -o @USER@ -g @GROUP@ @SHELL_STATE_DIR@
-install -d -m 0700 -o @USER@ -g @GROUP@ @SHELL_LOG_DIR@
+install -d -m 0700 -o @USER@ -g @GROUP@ @SHELL_ACCOUNT_HOME@
+install -d -m 0700 -o @STATE_USER@ -g @STATE_GROUP@ @SHELL_STATE_DIR@
+install -d -m 0700 -o @STATE_USER@ -g @STATE_GROUP@ @SHELL_LOG_DIR@

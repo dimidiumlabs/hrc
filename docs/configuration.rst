@@ -12,7 +12,7 @@ must match ``[A-Za-z][A-Za-z0-9_-]*``: an ASCII letter first, then ASCII letters
 digits, underscores or hyphens.
 
 For example, a manual YAML config can be started with
-``hrcd -config hrc.yaml``:
+``sudo hrcd -config hrc.yaml`` on Unix:
 
 .. code-block:: yaml
 
@@ -76,9 +76,10 @@ Host settings
      - ``./hrc/log``
      - Parent of per-job diagnostics under ``jobs/``.
 
-Relative paths use the daemon's working directory, not the directory
-containing the config file. The supplied services use their state directory as
-working directory. Keep state and job directory paths free of spaces on macOS.
+Relative paths use the daemon's working directory, not the config file's
+directory, except on Unix where space and provider credential file paths use
+the ``hrc`` account's home. The supplied services use their state directory
+as working directory. Keep state and job directory paths free of spaces on macOS.
 The Ansible role supplies installation-specific defaults for these paths;
 the table above describes the daemon's own defaults.
 
@@ -231,7 +232,7 @@ Secrets
    * - ``type``
      - Meaning of ``value``
    * - ``file``
-     - Path to a file readable by the service account.
+     - Path to a file readable by the queue account (``hrc`` on Unix).
    * - ``env``
      - Name of an environment variable in the daemon's environment.
    * - ``inline``
@@ -248,8 +249,8 @@ than 30 seconds remaining are reread regardless of TTL.
 
 Leading and trailing whitespace is removed from secret values; an empty secret
 is an error. Services do not inherit your interactive shell's ``GITHUB_TOKEN``.
-Jobs execute as the service account and can access its credentials; secret files
-are not an isolation boundary between hrc and build code.
+Jobs execute as the job account (``hrc`` on Unix) and can access its credentials;
+secret files are not an isolation boundary between hrc and build code.
 
 Ansible variables
 -----------------

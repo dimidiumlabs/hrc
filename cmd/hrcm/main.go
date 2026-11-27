@@ -19,8 +19,9 @@ import (
 )
 
 var (
-	help    = flag.Bool("help", false, "Show this help")
-	version = flag.Bool("version", false, "Show hrcm version")
+	help      = flag.Bool("help", false, "Show this help")
+	version   = flag.Bool("version", false, "Show hrcm version")
+	directory = flag.String("dir", "", "Space directory to create and enter after initialization")
 )
 
 func main() {
@@ -64,6 +65,15 @@ func serve(ctx context.Context, args []string) (err error) {
 			return nil
 		}
 		return err
+	}
+
+	if *directory != "" {
+		if err := os.MkdirAll(*directory, 0700); err != nil {
+			return fmt.Errorf("create space directory: %w", err)
+		}
+		if err := os.Chdir(*directory); err != nil {
+			return fmt.Errorf("enter space directory: %w", err)
+		}
 	}
 
 	s, err := NewMonitor(r)

@@ -16,13 +16,13 @@ Contents
 Common requirements
 -------------------
 
-- Use a host reserved for trusted jobs. Jobs run as the service account and
-  can access its credentials and the host's persistent state.
+- Use a host reserved for trusted jobs. Jobs run as the job account (``hrc`` on
+  Unix) and can access its credentials and persistent state.
 - Install Git and the compilers, SDKs, and other tools your workflows need.
   The `first build example <./workflows.rst#first-build>`__ needs a C compiler;
   on Ubuntu/Debian, install ``git`` and ``build-essential``.
-- Make tools available to the service account. Services do not inherit your
-  interactive shell's environment, PATH modifications, or credentials.
+- Make tools available to the job account (``hrc`` on Unix). Services do not
+  inherit your interactive shell's environment, PATH modifications, or credentials.
 - Allow outbound HTTPS to GitHub and the services your workflows use. hrc
   needs no inbound port to receive jobs. Ansible still needs its own management
   connection, such as SSH or WinRM.
@@ -38,7 +38,7 @@ Linux
 
 Linux archives require glibc; Alpine/musl hosts are not supported. The supplied
 service definitions support systemd and OpenRC. Container jobs, service
-containers, and container actions require Docker and permission for the service
+containers, and container actions require Docker and permission for the ``hrc``
 account to use it.
 
 Install the native Worker dependencies below before deploying hrc. Install
@@ -87,7 +87,7 @@ macOS
 
 macOS 13.5 or later needs no additional native Worker dependencies. Install Git
 and any build tools needed by your workflows, such as Xcode or Command Line
-Tools, separately. Ensure the service account can access them.
+Tools, separately. Ensure the ``hrc`` account can access them.
 
 Keep daemon state and job directory paths free of spaces. For Ansible,
 install Python on the host and arrange SSH and administrative access.

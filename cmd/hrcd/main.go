@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	goruntime "runtime"
 	"syscall"
 
 	hrcconfig "dimidiumlabs.io/hrc/internal/config"
@@ -61,7 +62,16 @@ func (c ForgeConfig) NewQueue(id, version string, pool *runtime.Pool, onError fu
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
+	var user *runtime.User
+	if goruntime.GOOS != "windows" {
+		var err error
+		user, err = runtime.LookupUser("hrc")
+		if err != nil {
+			return nil, err
+		}
+	}
 	return &provider.ProcessQueue{
+		User: user,
 		Pool: pool, OnError: onError,
 		Command: []string{"hrcp-github-queue"}, Config: bytes.Clone(c.raw),
 		Instance: id, Version: version, Name: string(c.placement.ID),
@@ -96,9 +106,23 @@ func (c SpaceConfig) NewSpace(dirs Directories, pool SlotConfig, capacity int, p
 		if root == "" {
 			root = filepath.Join(dirs.Spaces, string(spec.ID))
 		}
-		root, err := filepath.Abs(root)
-		if err != nil {
-			return nil, err
+		command := runtime.Command{Path: "hrcm", Stdout: os.Stdout, Stderr: os.Stderr}
+		if goruntime.GOOS != "windows" {
+			user, err := runtime.LookupUser("hrc")
+			if err != nil {
+				return nil, err
+			}
+			if !filepath.IsAbs(root) {
+				root = filepath.Join(user.HomeDir, root)
+			}
+			command.User, command.Env, command.Dir = user, user.Environ(), user.HomeDir
+			command.Args = []string{"-dir", root}
+		} else {
+			var err error
+			command.Dir, err = filepath.Abs(root)
+			if err != nil {
+				return nil, err
+			}
 		}
 		slotConfig, err := pool.executionConfig()
 		if err != nil {
@@ -111,7 +135,7 @@ func (c SpaceConfig) NewSpace(dirs Directories, pool SlotConfig, capacity int, p
 			SlotConfig: slotConfig,
 			Providers:  providers,
 		}
-		return spacehost.New(string(spec.ID), root, []string{"hrcm"}, config, processes)
+		return spacehost.New(string(spec.ID), command, config, processes)
 	default:
 		return nil, space.ErrInvalidConfig
 	}
@@ -171,6 +195,9 @@ func main() {
 }
 
 func runDaemon(cfg *Config) (err error) {
+	if goruntime.GOOS != "windows" && os.Geteuid() != 0 {
+		return errors.New("hrcd must run as root on Unix")
+	}
 	demands := make(Demands, len(cfg.Spaces))
 	if err := demands.Init(cfg); err != nil {
 		return fmt.Errorf("calculate space capacities: %w", err)

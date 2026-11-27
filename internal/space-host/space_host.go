@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Nikolay Govorov
 // SPDX-License-Identifier: BSD-3-Clause
 
-// Package spacehost owns a directory and a separate host monitor process.
+// Package spacehost manages a host monitor launched with a daemon-prepared command.
 package spacehost
 
 import (
@@ -26,13 +26,12 @@ type SpaceHost struct {
 
 	mu sync.Mutex
 
-	child  *runtime.Child
-	pool   *runtime.Pool
-	name   string
-	args   []string
-	config *space.Config
+	child   *runtime.Child
+	pool    *runtime.Pool
+	name    string
+	command runtime.Command
+	config  *space.Config
 
-	rootDir     string
 	initialized bool
 }
 
@@ -42,28 +41,28 @@ var (
 )
 
 // New prepares configuration only. Run launches hrcm on the first Job.
-func New(name, root string, command []string, config *space.Config, pool *runtime.Pool) (*SpaceHost, error) {
-	if name == "" || root == "" || len(command) == 0 || config == nil {
+func New(name string, command runtime.Command, config *space.Config, pool *runtime.Pool) (*SpaceHost, error) {
+	if name == "" || command.Dir == "" || command.Path == "" || config == nil {
 		return nil, fmt.Errorf("%w: space name, root, monitor command and configuration are required", space.ErrInvalidConfig)
 	}
 
-	root, err := filepath.Abs(root)
+	root, err := filepath.Abs(command.Dir)
 	if err != nil {
 		return nil, errors.Join(space.ErrInvalidConfig, err)
 	}
 
-	command = slices.Clone(command)
-	path, err := runtime.LookPath(command[0])
+	command.Args = slices.Clone(command.Args)
+	command.Env = slices.Clone(command.Env)
+	path, err := runtime.LookPath(command.Path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: find monitor: %w", space.ErrInvalidConfig, err)
 	}
-	command[0] = path
+	command.Path, command.Dir = path, root
 
 	space := SpaceHost{
 		name:    name,
-		rootDir: root,
 		config:  proto.CloneOf(config),
-		args:    command,
+		command: command,
 		pool:    pool,
 	}
 	space.config.SpaceType = space.Type()
@@ -74,7 +73,7 @@ func New(name, root string, command []string, config *space.Config, pool *runtim
 func (*SpaceHost) Type() string   { return "host" }
 func (s *SpaceHost) Name() string { return s.name }
 
-func (s *SpaceHost) Cwd() string { return s.rootDir }
+func (s *SpaceHost) Cwd() string { return s.command.Dir }
 
 func (s *SpaceHost) Run(ctx context.Context, job provider.Job) (provider.Run, error) {
 	if err := s.connect(ctx); err != nil {
@@ -126,13 +125,16 @@ func (s *SpaceHost) connect(ctx context.Context) error {
 // start launches a monitor after connect has retired the previous generation.
 // The caller holds s.mu and handles lifecycle status and error classification.
 func (s *SpaceHost) start(ctx context.Context) error {
-	// Only the launch cwd is created here; hrcm prepares the space contents.
-	if err := os.MkdirAll(s.rootDir, 0700); err != nil {
-		return err
+	// Same-account launches retain their existing cwd preparation. With an
+	// explicit user, hrcm starts in HOME and creates its space directory itself.
+	if s.command.User == nil {
+		if err := os.MkdirAll(s.command.Dir, 0700); err != nil {
+			return err
+		}
 	}
 	startup, cancel := context.WithTimeout(ctx, hrcconfig.ProcessStartTimeout)
 	defer cancel()
-	command := runtime.Command{Path: s.args[0], Args: s.args[1:], Dir: s.rootDir, Stdout: os.Stdout, Stderr: os.Stderr}
+	command := s.command
 	if goruntime.GOOS == "windows" {
 		command.Transport = runtime.NamedPipeTransport
 	}

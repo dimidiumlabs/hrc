@@ -23,6 +23,7 @@ import (
 // acquisition only; the process remains until all delivered handles are closed.
 type ProcessQueue struct {
 	Pool                    *runtime.Pool
+	User                    *runtime.User
 	OnError                 func(error)
 	Command                 []string
 	Config                  []byte
@@ -42,7 +43,7 @@ type queueProcess struct {
 	once   sync.Once
 }
 
-func launchQueue(ctx context.Context, command []string, pool *runtime.Pool) (*queueProcess, error) {
+func launchQueue(ctx context.Context, command []string, pool *runtime.Pool, user *runtime.User) (*queueProcess, error) {
 	if len(command) == 0 {
 		return nil, errors.New("queue command is required")
 	}
@@ -54,9 +55,12 @@ func launchQueue(ctx context.Context, command []string, pool *runtime.Pool) (*qu
 	RegisterQueueServiceServer(p.server, p)
 	context.AfterFunc(lifetime, p.server.Stop)
 	var err error
-	p.child, err = pool.Start(startup, runtime.ChildSpec{
-		Command: runtime.Command{Path: command[0], Args: command[1:], Stdout: os.Stdout, Stderr: os.Stderr},
-	})
+	spec := runtime.Command{Path: command[0], Args: command[1:], Stdout: os.Stdout, Stderr: os.Stderr, User: user}
+	if user != nil {
+		spec.Dir = user.HomeDir
+		spec.Env = user.Environ()
+	}
+	p.child, err = pool.Start(startup, runtime.ChildSpec{Command: spec})
 	if err != nil {
 		cancel()
 		return nil, err
@@ -119,7 +123,7 @@ func (q *ProcessQueue) Serve(ctx context.Context, demand Demand) <-chan Handle {
 	go func() {
 		startup, stop := context.WithTimeout(ctx, hrcconfig.ProcessStartTimeout)
 		defer stop()
-		child, err := launchQueue(startup, q.Command, pool)
+		child, err := launchQueue(startup, q.Command, pool, q.User)
 		if err != nil {
 			slog.Error("Start provider queue", "err", err)
 			close(jobs)

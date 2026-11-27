@@ -37,9 +37,11 @@ const (
 // Command describes a direct child, optionally attached to a Group.
 // Pipes requests anonymous pipes; child descriptors/handles are appended to Args.
 // Child.Close closes their parent ends. Env follows exec.Cmd semantics.
+// User selects child credentials only; the launcher supplies its cwd and environment.
 type Command struct {
 	Group          *Group
 	Transport      ControlTransport
+	User           *User
 	Path, Dir      string
 	Args, Env      []string
 	Stdout, Stderr io.Writer
@@ -47,6 +49,20 @@ type Command struct {
 	files          []*os.File
 	Pipes          []PipeDirection
 }
+
+// User is a resolved host identity. Account selection belongs to the launcher,
+// not to a space or provider implementation.
+type User struct {
+	Name, HomeDir string
+	uid, gid      uint32
+	groups        []uint32
+}
+
+// LookupUser resolves an existing, non-root account and its complete group list.
+func LookupUser(name string) (*User, error) { return lookupUser(name) }
+
+// Environ returns the platform's base environment for this account.
+func (u *User) Environ() []string { return userEnvironment(u) }
 
 // StartChild starts a child without a control channel. The caller owns its cleanup.
 func StartChild(ctx context.Context, command Command) (*Child, error) {
@@ -113,7 +129,7 @@ func (p *Child) startProcess(ctx context.Context, config Command) error {
 		p.pipes = append(p.pipes, parent)
 	}
 	defer p.closeInherited()
-	if err := p.configure(append(childPipes, config.files...)); err != nil {
+	if err := p.configure(append(childPipes, config.files...), config.User); err != nil {
 		return fmt.Errorf("configure process: %w", err)
 	}
 	if config.Input {

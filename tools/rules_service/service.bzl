@@ -50,6 +50,7 @@ def _service_files_impl(ctx):
     user = ctx.attr.user or name
     group = ctx.attr.group or user
     executable = ctx.attr.executable or name
+    service_user = "root" if ctx.attr.privileged else user
     for field, value in [("service", name), ("user", user), ("group", group), ("executable", executable)]:
         _identifier(value, field)
     for value in ctx.attr.args + [ctx.attr.description, ctx.attr.prefix]:
@@ -76,9 +77,9 @@ def _service_files_impl(ctx):
             substitutions = {
                 "@COMMAND@": " ".join([_systemd(arg) for arg in [binary] + args]),
                 "@DESCRIPTION@": ctx.attr.description.replace("%", "%%"),
-                "@GROUP@": group,
+                "@GROUP@": "root" if ctx.attr.privileged else group,
                 "@STATE@": state.replace("%", "%%"),
-                "@USER@": user,
+                "@USER@": service_user,
             }
         elif kind == "openrc":
             substitutions = {
@@ -86,7 +87,7 @@ def _service_files_impl(ctx):
                 "@DESCRIPTION@": _shell(ctx.attr.description),
                 "@EXECUTABLE@": _shell(binary),
                 "@LOG@": _shell(log),
-                "@OWNER@": _shell(user + ":" + group),
+                "@OWNER@": _shell("root:0" if ctx.attr.privileged else user + ":" + group),
                 "@REQUIRED_FILES@": "required_files=" + _shell(config) if any(["{config}" in arg for arg in ctx.attr.args]) else "",
                 "@STATE@": _shell(state),
                 "@STDERR@": _shell(log + "/stderr.log"),
@@ -95,11 +96,11 @@ def _service_files_impl(ctx):
         elif kind == "launchd":
             substitutions = {
                 "@ARGUMENTS@": "\n".join(["    <string>" + _xml(arg) + "</string>" for arg in [binary] + args]),
-                "@GROUP@": _xml(group),
+                "@GROUP@": _xml("wheel" if ctx.attr.privileged else group),
                 "@LABEL@": _xml("io.dimidiumlabs." + name),
                 "@LOG@": _xml(log),
                 "@STATE@": _xml(state),
-                "@USER@": _xml(user),
+                "@USER@": _xml(service_user),
             }
         else:
             substitutions = {
@@ -126,6 +127,7 @@ def _service_files_impl(ctx):
             prefix = prefix,
             os = ctx.attr.os,
             arch = ctx.attr.arch,
+            privileged = ctx.attr.privileged,
         )
         for source in getattr(ctx.files, "_" + ctx.attr.os + "_scripts"):
             output = ctx.actions.declare_file(ctx.label.name + "/scripts/" + source.basename)
@@ -152,8 +154,9 @@ _service_files = rule(
         "group": attr.string(doc = "Unix service group; defaults to user."),
         "os": attr.string(mandatory = True, values = ["linux", "darwin", "windows"]),
         "prefix": attr.string(default = "/usr/local", doc = "Unix installation prefix for the binary and macOS configuration."),
+        "privileged": attr.bool(doc = "Run the Unix daemon as root; user/group still provision the unprivileged child account."),
         "service": attr.string(doc = "Service ID and base filename; defaults to the target name."),
-        "user": attr.string(doc = "Unix service user; defaults to service. WinSW uses LocalService."),
+        "user": attr.string(doc = "Unix service user; defaults to service. WinSW uses the NT SERVICE virtual account matching the service ID."),
         "_darwin_scripts": attr.label(default = Label("//tools/rules_service:darwin_script_templates"), allow_files = True),
         "_launchd": attr.label(default = Label("//tools/rules_service:templates/launchd.tpl"), allow_single_file = True),
         "_linux_scripts": attr.label(default = Label("//tools/rules_service:linux_script_templates"), allow_files = True),
@@ -183,7 +186,7 @@ def service(name, bin, os, arch, deps = [], config = None, tags = [], visibility
         tags: Tags applied to the archive and its private contents target.
         visibility: Visibility of the archive target.
         **kwargs: Service description settings: required description and optional
-            service, executable, args, prefix, user and group.
+            service, executable, args, prefix, user, group and privileged.
     """
     _service_files(
         name = name + "_files",

@@ -32,7 +32,10 @@ func protectControlFiles(input, output *os.File) error {
 func socketPair() (net.Conn, *os.File, error) { return nil, nil, nil }
 
 // configure gives the child a console of its own.
-func (p *Child) configure(files []*os.File) error {
+func (p *Child) configure(files []*os.File, user *User) error {
+	if user != nil {
+		return errors.New("launching as another user is not yet supported on Windows")
+	}
 	// The runner cancels a step with GenerateConsoleCtrlEvent on the step's
 	// console, which reaches every process attached to it. A console of its own
 	// keeps that Ctrl+C away from the parent and the other Workers.
