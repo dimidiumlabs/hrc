@@ -13,6 +13,9 @@ Added
 
 - ``subcommand`` secret source, optional cache ``ttl`` for all secret sources,
   and externally signed GitHub App JWT authentication via ``jwt``.
+- Drain the daemon with ``SIGUSR1`` on Linux and macOS: stop acquisition, finish
+  already accepted jobs, and then release queues and spaces. ``SIGTERM`` or
+  ``SIGINT`` interrupts draining and requests cancellation.
 
 Changed
 ~~~~~~~
@@ -51,6 +54,9 @@ Fixed
 
 - Confirm Windows process termination before reporting an access-denied error
   from killing an already exiting child as a cleanup failure.
+- Retain jobs and their dependencies when finalization fails. Retry cleanup with
+  escalation scoped to the affected queue or space; uncollectable resources
+  trigger daemon shutdown and are reported rather than silently forgotten.
 - Count development versions across the full first-parent history so new release
   tags cannot reset the counter and block publication.
 - Isolate queue operation deadlines and cancellation from the shared session,

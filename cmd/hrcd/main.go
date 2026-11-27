@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"syscall"
 
 	hrcconfig "dimidiumlabs.io/hrc/internal/config"
 	"dimidiumlabs.io/hrc/internal/provider"
@@ -181,19 +180,41 @@ func runDaemon(cfg *Config) (err error) {
 	if err != nil {
 		return err
 	}
-	pool := &runtime.Pool{}
-	defer func() { err = errors.Join(err, pool.Close()) }()
-	controller, err := NewController(cfg, demands, providers, pool)
+	controller, err := NewController(cfg, demands, providers)
 	if err != nil {
 		return fmt.Errorf("create controller: %w", err)
 	}
 
-	// Service managers stop with SIGTERM; Windows delivers console close and
-	// shutdown events as SIGTERM as well.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), runtime.TerminationSignals()...)
 	defer stop()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	stopDrain := notifyDrain(controller.Drain)
+	defer stopDrain()
 
 	return controller.Run(ctx)
+}
+
+func notifyDrain(drain func()) func() {
+	drainSignal := runtime.UserSignal1()
+	if drainSignal == nil {
+		return func() {}
+	}
+	signals := make(chan os.Signal, 1)
+	done, stopped := make(chan struct{}), make(chan struct{})
+	signal.Notify(signals, drainSignal)
+	go func() {
+		defer close(stopped)
+		for {
+			select {
+			case <-signals:
+				drain()
+			case <-done:
+				return
+			}
+		}
+	}()
+	return func() {
+		signal.Stop(signals)
+		close(done)
+		<-stopped
+	}
 }

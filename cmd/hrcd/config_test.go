@@ -139,3 +139,21 @@ forges:
 		})
 	}
 }
+
+func TestForgeSpaceConfiguration(t *testing.T) {
+	const base = poolConfigJSON
+	var cfg Config
+	if err := json.Unmarshal([]byte(base), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.poolForSpace("build") != &cfg.Slots[0] {
+		t.Fatal("pool placement lost")
+	}
+	cfg.Slots[0].Base().Space = "missing"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "unknown space") {
+		t.Fatalf("unknown space: %v", err)
+	}
+}

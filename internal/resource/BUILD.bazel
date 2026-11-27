@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 Nikolay Govorov
+# SPDX-License-Identifier: BSD-3-Clause
+
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("//tools/check:sources.bzl", "check_sources")
+
+check_sources()
+
+go_library(
+    name = "resource",
+    srcs = ["heap.go"],
+    importpath = "dimidiumlabs.io/hrc/internal/resource",
+    visibility = ["//:__subpackages__"],
+)
+
+go_test(
+    name = "resource_test",
+    size = "small",
+    srcs = glob(["*_test.go"]),
+    embed = [":resource"],
+)
